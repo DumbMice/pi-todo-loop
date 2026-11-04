@@ -286,33 +286,45 @@ and read the pi changelog for `custom_message`, `display`, `canContinue`, plus r
 
 ## Release process
 
-**0.1.0 is published manually** — there is no publish workflow in this repository, so trusted
-publishing and provenance are not available yet. Run `npm login`, then `npm publish`; `prepublishOnly`
-runs the suite, the typecheck and the pack check first, so a publish cannot ship a tarball nothing
-verified. When a publish workflow lands, switch it to [trusted
-publishing](https://docs.npmjs.com/trusted-publishers): the workflow exchanges a GitHub OIDC token for
-a short-lived credential, no `NPM_TOKEN` is needed, and npm attaches a provenance attestation
-automatically on a public repository.
+Publishing runs in `.github/workflows/publish.yml` on a pushed `v*` tag, using npm
+[trusted publishing](https://docs.npmjs.com/trusted-publishers): the job exchanges its OIDC token for a
+short-lived publish credential, so the repository holds no `NPM_TOKEN`, and npm attaches a provenance
+attestation automatically because the repository is public.
+
+**Configure the publisher once** at <https://www.npmjs.com/package/pi-todo-loop/access> — or as a
+*Pending publisher* before the first release, which is what a brand-new package needs:
+
+| Field | Value |
+|---|---|
+| Provider | GitHub Actions |
+| Organization or user | `DumbMice` |
+| Repository | `pi-todo-loop` |
+| Workflow filename | `publish.yml` |
+| Environment | leave empty |
+
+The workflow must keep that filename: npm pins the publisher to it. It runs `npm ci`, the suite, the
+typecheck and `npm run pack:check`, refuses to publish when the tag and `package.json` disagree, packs
+the tarball and asserts the packed manifest still declares `pi.extensions`, then publishes and creates
+the GitHub release from the matching `CHANGELOG.md` section. A manual `workflow_dispatch` defaults to
+`dry_run` — it verifies everything and publishes nothing.
+
+Cutting a release:
 
 ```bash
-npm version patch --no-git-tag-version    # or minor/major; the working tree must be clean
+npm version patch --no-git-tag-version    # or minor/major; the tree must be clean
 VERSION="$(node -p "require('./package.json').version")"
-# add the CHANGELOG.md entry for this version, then:
-git add -A                                 # include any new docs; -am skips untracked files
+# move the CHANGELOG entry from [Unreleased] to "## [$VERSION] — YYYY-MM-DD"
+git add -A
 git commit -m "chore: release v$VERSION"
 git tag -a "v$VERSION" -m "v$VERSION"
 git push origin main --follow-tags
 ```
 
-`--follow-tags` pushes only **annotated** tags, which is why the recipe uses `git tag -a`; a
-lightweight tag would stay local and publish nothing.
+`--follow-tags` pushes only **annotated** tags, which is why the recipe uses `git tag -a`. A pushed tag
+starts the publish; nothing else does.
 
-**There is no publish workflow in this repository.** `.github/workflows/test.yml` runs the suite,
-typecheck and pack check only. After pushing the tag, publish from the tagged commit in a clean tree:
-`npm publish` (its `prepublishOnly` repeats those three checks). If a trusted-publishing workflow is
-added later, it must also refuse to publish when the tag and `package.json` version disagree. Until
-then, the tag is a bookmark, not a release.
-
+Until the trusted publisher is configured, `publish.yml` fails at the publish step by design (the OIDC
+exchange is rejected) — and that is the safe failure: the checks still run, nothing is uploaded.
 ## Commits and security
 
 - Commits follow Conventional Commits (`feat:`, `fix:`, `docs:`, `ci:`, `chore:`); release commits are

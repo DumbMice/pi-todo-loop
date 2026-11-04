@@ -53,6 +53,9 @@ Initial release.
   dropped, and labels truncate by code point, so a task subject cannot close the injection tag or forge a directive. Verified against a
   crafted subject that closed the tag and inserted a `SYSTEM:` line — the structure broke before the
   fix and the model refused both times.
+- `.github/workflows/publish.yml`: tag-triggered publish through npm Trusted Publishing (OIDC, no
+  `NPM_TOKEN`, automatic provenance), gated on the suite, the typecheck, `pack:check`, a tag/version
+  match and a packed-manifest assertion; creates the GitHub release from the CHANGELOG section.
 - `scripts/check-pack.mjs` as `npm run pack:check`: asserts the published tarball really contains the
   entry point, sources, docs, licence and `tsconfig.json`, and that no dev-only path (`test/`,
   `.github/`) leaks into it (`npm pack --dry-run` exits 0 otherwise).
