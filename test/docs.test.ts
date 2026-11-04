@@ -69,7 +69,8 @@ test("every test name the invariant map cites actually exists", () => {
 	const rows = map
 		.split("\n")
 		.filter((line) => line.startsWith("|") && !line.startsWith("| Invariant") && !isSeparator(line));
-	assert.ok(rows.length > 8, `expected the invariant map, found ${rows.length} rows`);
+	// Pinned exactly: a row that disappears must fail here, not merely lower the count.
+	assert.equal(rows.length, 31, `invariant map row count changed (${rows.length}); update this number when you add a row`);
 
 	const cited: string[] = [];
 	for (const row of rows) {
@@ -85,18 +86,26 @@ test("every test name the invariant map cites actually exists", () => {
 });
 
 test("every stop reason the code can report appears in the README table", () => {
-	const sources = [read("../src/loop.ts"), read("../src/index.ts")].join("\n");
+	// Only lines that produce a reason: `reason:`, `state.reason =`, `stop(...)`,
+	// `resetRun(...)`. UI notices are not reasons and must not be required here.
+	const lines = [read("../src/loop.ts"), read("../src/index.ts")]
+		.join("\n")
+		.split("\n")
+		.filter((line) => /reason|resetRun\(|stop\([A-Za-z]+,/.test(line));
 
-	// Reason templates from the source: the literal text before the first `${`.
 	const fragments = new Set<string>();
-	for (const match of sources.matchAll(/`([^`]*\$\{[^}]+\}[^`]*)`/g)) {
-		const head = match[1].split("${")[0].trim();
-		if (head.length >= 4) fragments.add(head);
+	for (const line of lines) {
+		for (const match of line.matchAll(/`([^`]*\$\{[^`]*)`/g)) {
+			const template = match[1];
+			const head = template.split("${")[0].trim();
+			if (head.length >= 4) fragments.add(head);
+			const tail = template.slice(template.lastIndexOf("}") + 1).trim();
+			if (tail.length >= 4) fragments.add(tail);
+		}
+		for (const match of line.matchAll(/"([^"]{6,})"/g)) fragments.add(match[1]);
 	}
-	for (const literal of ["idle", "paused by user", "resumed by user", "counters reset"]) {
-		if (sources.includes(`"${literal}"`)) fragments.add(literal);
-	}
-	assert.ok(fragments.size >= 6, `expected several reason fragments, found ${fragments.size}`);
+	fragments.delete("");
+	assert.ok(fragments.size >= 8, `expected several reason fragments, found ${fragments.size}`);
 
 	const missing = [...fragments].filter((fragment) => !README.includes(fragment));
 	assert.deepEqual(missing, [], `README reason table is missing: ${missing.join(" | ")}`);
@@ -111,13 +120,17 @@ test("the README configuration table states every default, not just the numbers"
 	}
 });
 
-test("clamp ceilings in the README match the ones the code enforces", () => {
+test("clamp ceilings in the README match the ones the code enforces, per key", () => {
 	const config = read("../src/config.ts");
-	const ceilings = [...config.matchAll(/bounded\(record\.\w+, ([0-9_]+)\)/g)].map((match) =>
-		match[1].replace(/_/g, ""),
-	);
-	assert.ok(ceilings.length >= 3, `expected three clamp ceilings, found ${ceilings.length}`);
-	for (const ceiling of ceilings) {
-		assert.ok(README.includes(ceiling), `README does not state the clamp ceiling ${ceiling}`);
+	const clamps = [...config.matchAll(/bounded\(record\.(\w+), ([0-9_]+)\)/g)].map((match) => ({
+		key: match[1],
+		ceiling: match[2].replace(/_/g, ""),
+	}));
+	assert.equal(clamps.length, 3, `expected three clamp ceilings, found ${clamps.length}`);
+	for (const { key, ceiling } of clamps) {
+		assert.ok(
+			README.includes(`\`${key}\` ≤ ${ceiling}`),
+			`README does not state \`${key}\` ≤ ${ceiling}`,
+		);
 	}
 });

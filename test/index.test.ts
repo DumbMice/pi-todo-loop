@@ -178,17 +178,15 @@ test("the project-local kill switch disables both hooks", async () => {
 	writeFileSync(join(h.ctx.cwd, ".pi", "off-local"), "");
 
 	assert.equal(await run(h, "context", { messages: [] }), undefined);
-	assert.equal(
-		await run(h, "turn_end", { outcome: "completed", toolResults: [{ role: "toolResult" }], entries: [] }),
-		undefined,
-	);
+	assert.equal(await run(h, "turn_end", { outcome: "completed", toolResults: [], entries: [] }), undefined);
 });
 
 test("turn_end requests one turn with a hidden marker when work is open", async () => {
 	const h = harness(branchWith([task(1, "pending")]));
+	// A settle turn: no tool results, so the run was about to end.
 	const result = await run(h, "turn_end", {
 		outcome: "completed",
-		toolResults: [{ role: "toolResult" }],
+		toolResults: [],
 		entries: [{ type: "custom", customType: "someone-else", data: {} }],
 	});
 
@@ -234,7 +232,7 @@ test("turn_end tolerates a malformed event payload instead of throwing", async (
 
 test("the round cap is sticky for one human message", async () => {
 	const h = harness(branchWith([task(1, "pending")]), { maxRounds: 1 });
-	const work = { outcome: "completed", toolResults: [{ role: "toolResult" }], entries: [] };
+	const work = { outcome: "completed", toolResults: [], entries: [] };
 
 	assert.equal((await run(h, "turn_end", work))?.continue, true, "round 1");
 	assert.equal(await run(h, "turn_end", work), undefined, "cap reached");
@@ -245,11 +243,46 @@ test("the round cap is sticky for one human message", async () => {
 
 test("pause and resume gate the loop", async () => {
 	const h = harness(branchWith([task(1, "pending")]));
-	const work = { outcome: "completed", toolResults: [{ role: "toolResult" }], entries: [] };
+	const work = { outcome: "completed", toolResults: [], entries: [] };
 
 	await h.commands.todoloop.handler("pause", h.ctx);
 	assert.equal(await run(h, "turn_end", work), undefined);
 
 	await h.commands.todoloop.handler("resume", h.ctx);
 	assert.equal((await run(h, "turn_end", work))?.continue, true);
+});
+
+test("a turn that ran tools spends no round and appends no marker", async () => {
+	// `turn_end` fires per assistant response. A response that ended in a tool call
+	// already causes pi's next request, so it is not a continuation and must not
+	// consume the budget — otherwise a 13-response job exhausts maxRounds 12 before
+	// the model ever settles.
+	const h = harness(branchWith([task(1, "pending"), task(2, "pending")]), { maxRounds: 12 });
+	const toolTurn = { outcome: "completed", toolResults: [{ role: "toolResult" }], entries: [] };
+
+	for (let turn = 0; turn < 13; turn += 1) {
+		assert.equal(await run(h, "turn_end", toolTurn), undefined, `tool turn ${turn} must not continue`);
+	}
+
+	const settle = await run(h, "turn_end", { outcome: "completed", toolResults: [], entries: [] });
+	assert.equal(settle?.continue, true, "the first settle still gets a continuation");
+	assert.equal(settle.entries.length, 1, "exactly one marker, on the settle");
+
+	await h.commands.todoloop.handler("", h.ctx);
+	assert.match(h.notices.at(-1) as string, /rounds 1\/12/, "13 tool turns cost nothing");
+});
+
+test("a human-role tail receives the block instead of a second user message", async () => {
+	const h = harness(branchWith([task(1, "pending")]));
+	const result = await run(h, "context", {
+		messages: [
+			{ role: "assistant", content: "waiting" },
+			{ role: "user", content: "keep going" },
+		],
+	});
+	assert.equal(result.messages.length, 2, "no extra message is appended");
+	assert.equal(result.messages.at(-1).role, "user");
+	const parts = result.messages.at(-1).content;
+	assert.equal(parts.length, 2, "the block becomes an extra content part");
+	assert.match(parts[1].text, /tracked task\(s\) are still open/);
 });

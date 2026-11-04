@@ -102,7 +102,7 @@ Requirements:
 |---|---|
 | pi | tested on **1.5.0**; needs the `turn_end` boundary with `continue` and draft `entries`. Older versions are unverified |
 | todo tool | any tool named `todo` that persists `rpiv-todo-state` custom entries or `todo` toolResult `details.tasks`; tested with `@juicesharp/rpiv-todo` **2.15.0**. Not declared in the manifest on purpose — see [docs/pi-api-alignment.md](docs/pi-api-alignment.md) item 11 |
-| Node | `>= 22.6` for the test runner; the extension has no runtime dependencies |
+| Node | `engines` declares `>= 22.6` — the test runner needs `--experimental-strip-types`; pi loads the TypeScript itself, so an older Node only warns. No runtime dependencies |
 
 Tested against, not merely required:
 
@@ -185,6 +185,8 @@ cannot defeat the cap it configures.
 | `/todoloop resume` | continue again |
 | `/todoloop reset` | clear the round and strike counters and forget the list signature |
 
+Any other argument is reported and ignored, so `/todoloop pause now` does not silently do nothing.
+
 **Kill switch**, checked before every decision:
 
 ```bash
@@ -197,11 +199,12 @@ touch .pi/todo-loop-off             # this project
 - **Continuation is silent.** Each continuation appends one `custom_message` with `display: false`
   — a constant 21-character body (`<todo_loop_continue/>`), roughly 200 bytes as a session entry — and
   requests one more turn. Nothing is added to the visible transcript.
-- **Markers stay in history; the tail marker is replaced.** A continuation marker sits between two
+- **Markers stay in history; the tail is never doubled.** A continuation marker sits between two
   assistant turns, so it is what keeps the conversation alternating; removing it would expose runs of
-  consecutive assistant messages that strict providers reject. Markers therefore stay, and there is one
-  per continuation (~200 bytes, no counters in the body). When the state block is appended, a marker at
-  the tail is replaced by it, so a request never ends on two user-role messages.
+  consecutive assistant messages that strict providers reject. Markers therefore stay, one per
+  continuation (~200 bytes, no counters in the body). When the state block is appended and the tail is
+  one of our markers, the block replaces it; when the tail is a human message, the block is added to
+  that message instead of after it. Either way a request never ends on two user-role messages.
 - **The task list is injected on every request** while tasks are open, as a `<todo_loop_state>` block:
   open tasks with ids and statuses, plus an instruction to work the list rather than ask whether to
   continue. It is not persisted, so compaction cannot remove it.
@@ -210,6 +213,9 @@ touch .pi/todo-loop-off             # this project
 - **The injected block is the last thing in the request.** It is user-role text, so it competes with
   your own newest message: while tasks are open the model is told the list is authoritative. That is
   why it is one bounded paragraph, and why `injectState: false` exists.
+- **Only a settle spends a round.** pi fires `turn_end` after every assistant response, including
+  ones that ended in a tool call. Those turns already cause pi's next request, so they cost nothing:
+  no marker, no round. A round is spent only on a turn that would otherwise have ended the run.
 - **One budget per human message.** Up to `maxRounds` continuations (12 by default) run before the loop
   stops. The budget resets when the newest human message changes — not when the agent continues — and
   starts empty in a new process (see the memory note below).
@@ -231,12 +237,12 @@ touch .pi/todo-loop-off             # this project
 
 - A continuation is a normal model turn: the whole conversation is sent again, so cost scales with
   `maxRounds` × session size. That, not the block, is the dominant term.
-- Every request also pays one backward walk of the branch, a config read (`readFileSync`) and two
-  `existsSync` probes for the kill switch, and — while tasks are open — the injected block (~100
-  tokens). The block is appended at the tail, so the block itself does not disturb the cached prefix;
-  note that returning a changed list makes pi re-collapse system messages into one head, which is
-  lossless but is a request-layout change. `injectState: false` adds no block at all and leaves the
-  model to call the todo tool's `list` action.
+- Each hook call — once in `context`, once in `turn_end` — reads the config, probes the kill switch and
+  walks the branch. While tasks are open, the block adds ~100 tokens at the tail. `injectState: false`
+  adds no block at all and leaves the model to call the todo tool's `list` action.
+- Returning a changed message list makes pi rebuild the request head from the current prompt and tool
+  state, which is lossless but means the head is not byte-identical to the previous request. That is
+  recorded in [docs/pi-api-alignment.md](docs/pi-api-alignment.md), not measured here.
 - Bounds: `maxRounds` per human message, `maxStrikes` consecutive no-progress turns, and no continuation
   at all on `error` / `aborted`. There is no absolute session ceiling; a resumed session starts a new
   budget.

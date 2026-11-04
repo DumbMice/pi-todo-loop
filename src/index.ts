@@ -47,7 +47,7 @@ interface SessionContext {
 	readonly ui: { notify(message: string, level: "info" | "error" | "warning"): void };
 }
 
-/** Stable across versions: earlier sessions' markers must keep being stripped. */
+/** Stable across versions: the tail check must keep recognising markers from earlier builds. */
 export const MARKER_TYPE = "todo-loop:continue";
 
 /**
@@ -119,17 +119,28 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 		// alternation-requiring providers reject. So markers stay in history; only a
 		// marker sitting at the tail (the continuation request about to be made) is
 		// replaced by the state block, so the request never ends on user → user.
+		const block = renderInjection(snapshot, config);
 		const last = original.length - 1;
-		const tailIsMarker =
-			last >= 0 && (original[last] as Record<string, unknown> | null)?.customType === MARKER_TYPE;
-		const base = tailIsMarker ? original.slice(0, last) : original;
+		const tail = (original[last] ?? null) as Record<string, unknown> | null;
+		const text = { type: "text", text: block };
 
-		return {
-			messages: [
-				...base,
-				{ role: "user", content: [{ type: "text", text: renderInjection(snapshot, config) }] },
-			],
-		};
+		// Our own marker at the tail is replaced: one user-role tail, no marker text.
+		if (tail?.customType === MARKER_TYPE) {
+			return { messages: [...original.slice(0, last), { role: "user", content: [text] }] };
+		}
+
+		// Any other human-role tail (a person's message, another extension's marker)
+		// gets the block appended to it rather than a second user message after it.
+		const tailRole = tail?.role;
+		if (tail !== null && (tailRole === "user" || (typeof tail.customType === "string" && tailRole !== "assistant"))) {
+			const content = Array.isArray(tail.content)
+				? [...(tail.content as unknown[]), text]
+				: [{ type: "text", text: String(tail.content ?? "") }, text];
+			const merged = { ...tail, content };
+			return { messages: [...original.slice(0, last), merged] };
+		}
+
+		return { messages: [...original, { role: "user", content: [text] }] };
 	});
 
 	pi.on("turn_end", async (event: any, ctx: SessionContext) => {
@@ -138,6 +149,11 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 		const config = loadConfig(configPath);
 		const snapshot = readSnapshot(branchEntries(ctx));
 		const toolResultCount = Array.isArray(event?.toolResults) ? event.toolResults.length : 0;
+		// `turn_end` fires for every assistant response, including one that ended in a
+		// tool call. Such a turn already causes pi's next request, so a continuation
+		// would be redundant — and counting it as a round spends the budget on work the
+		// loop did not cause. Only a settle (no tool results) can spend a round.
+		if (toolResultCount > 0) return undefined;
 
 		const decision = decide({
 			outcome: String(event?.outcome),
@@ -180,7 +196,8 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 	pi.registerCommand("todoloop", {
 		description: "Show or control the todo-driven continuation loop",
 		handler: async (args: string, ctx: SessionContext) => {
-			const command = (args ?? "").trim().toLowerCase();
+			const raw = (args ?? "").trim();
+			const [command, ...rest] = raw.toLowerCase().split(/\s+/);
 			const config = loadConfig(configPath);
 
 			if (command === "pause") {
@@ -199,6 +216,13 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 				Object.assign(state, initialState(), { paused: state.paused, reason: "counters reset" });
 				ctx.ui?.notify?.("todo-loop: counters reset", "info");
 				return;
+			}
+
+			if (rest.length > 0) {
+				ctx.ui?.notify?.(
+					`todo-loop: ignoring extra arguments "${rest.join(" ")}"; use status, pause, resume or reset`,
+					"warning",
+				);
 			}
 
 			const snapshot = readSnapshot(branchEntries(ctx));

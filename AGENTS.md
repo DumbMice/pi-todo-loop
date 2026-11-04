@@ -14,8 +14,10 @@ src/config.ts             config load and coercion, defaults on any failure
 test/loop.test.ts         decision policy: caps, strikes, anchor reset, error outcomes
 test/state.test.ts        branch reader: both shapes, recency preference, malformed input
 test/inject.test.ts       renderer and config coercion
-test/index.test.ts        the pi-facing half through a stub `pi`: tail coupling, kill switch, caps
-test/docs.test.ts         pins the tested-version table, the date and README link targets
+test/index.test.ts        the pi-facing half through a stub `pi`: tail handling, kill switch, caps
+test/fixture.test.ts      the same hooks over real captured lines (test/fixtures/branch.jsonl)
+test/docs.test.ts         pins the version table, invariant map, reason table, config table, links
+scripts/check-pack.mjs    asserts the published tarball contains what package.json promises
 docs/pi-api-alignment.md  every deliberate workaround over pi's documented extension API
 README.md                 user-facing documentation
 AGENTS.md                 this file
@@ -36,7 +38,7 @@ workflow installs with `npm ci`.
 npm install        # devDependencies only: typescript, @types/node
 npm test           # node:test, no model, no key, no network
 npm run typecheck  # tsc -p tsconfig.json, strict
-npm run pack:check # tarball contents: src, docs, README, AGENTS, CONTRIBUTING, LICENSE, CHANGELOG
+npm run pack:check # asserts src, docs, tsconfig, README, AGENTS, CONTRIBUTING, LICENSE, CHANGELOG ship
 
 # one file, while iterating
 node --experimental-strip-types --no-warnings --test test/loop.test.ts
@@ -64,13 +66,16 @@ adding a `CHANGELOG.md` line — all in the same commit.
   request (register item 3) — do not re-derive a coupling between the two.
 - **One entry per continuation is a floor, not a choice.** pi has no `resume()` that appends nothing.
   Do not try to reach zero entries; keep the single `custom_message` with `display: false`.
-- **The marker `customType` is a stable literal.** Sessions recorded by earlier builds must keep
-  filtering; do not derive it from the package name or version.
+- **The marker `customType` is a stable literal.** The tail check must keep recognising markers written
+  by earlier builds; do not derive it from the package name or version.
 - **Task state is read from the branch on every request.** No in-memory cache of the list, no
   `session_compact` resync handler: memory would drift across forks and compaction. Loop state
   (counters, anchor, pause) *is* in memory, and a restart necessarily starts a new budget.
 - **The decision is a pure function.** `decide()` in `src/loop.ts` takes a value and returns a value.
   It must stay free of pi, filesystem and time so the caps can be tested exhaustively.
+- **Only a settle spends a round.** `turn_end` fires for every assistant response, including one that
+  ended in a tool call; those already cause pi's next request, so the hook returns before deciding. A
+  round, a marker and a strike are therefore always about a turn that would have ended the run.
 - **A stop keeps the counters; only a new human message resets them.** Clearing `rounds` / `strikes` on
   stop re-arms a full budget on the next `turn_end` under the same anchor (another extension's
   continuation, a provider retry). The anchor comparison is the only *automatic* reset;
@@ -125,7 +130,9 @@ introduces an edge.
 | history markers are left in place; they are the alternation glue | `history markers are left alone when nothing is injected`, `history markers are left alone when injection is disabled` |
 | a malformed context payload is not rewritten | `context leaves a malformed payload alone instead of rewriting it` |
 | either kill switch disables both hooks | `the global kill switch disables both hooks`, `the project-local kill switch disables both hooks` |
+| only a settle spends a round: tool turns cost nothing | `a turn that ran tools spends no round and appends no marker` |
 | a continuation appends one hidden `custom_message` with a constant body and preserves prior proposals | `turn_end requests one turn with a hidden marker when work is open` |
+| a human-role tail receives the block instead of a second message | `a human-role tail receives the block instead of a second user message` |
 | a malformed event payload does not throw | `turn_end tolerates a malformed event payload instead of throwing` |
 | clamped and invalid config values fall back | `numbers are clamped so a typo cannot defeat the cap it configures`, `a value below 1 is treated as invalid, not as zero` |
 | an errored or aborted turn is never continued | `turn_end stops on an errored or aborted turn and does not spend a round` |
