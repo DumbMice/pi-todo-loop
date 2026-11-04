@@ -26,7 +26,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "./config.ts";
-import { INJECT_TAG, renderInjection } from "./inject.ts";
+import { renderInjection } from "./inject.ts";
 import { decide, initialState, type LoopState } from "./loop.ts";
 import { readSnapshot } from "./state.ts";
 
@@ -52,13 +52,17 @@ export const MARKER_TYPE = "todo-loop:continue";
 export const CONFIG_PATH = join(homedir(), ".pi/agent/todo-loop.json");
 const KILL_SWITCH_GLOBAL = join(homedir(), ".pi/agent/todo-loop-off");
 
-function isDisabled(ctx: SessionContext): boolean {
-	if (existsSync(KILL_SWITCH_GLOBAL)) return true;
-	try {
-		return existsSync(join(ctx.cwd, ".pi/todo-loop-off"));
-	} catch {
-		return false;
-	}
+/**
+ * Overrides for tests and embedding. Production always uses the documented
+ * paths; nothing else in the extension varies.
+ */
+export interface TodoLoopOptions {
+	/** Replaces `~/.pi/agent/todo-loop.json`. */
+	configPath?: string;
+	/** Replaces `~/.pi/agent/todo-loop-off`. */
+	killSwitchGlobal?: string;
+	/** Replaces `.pi/todo-loop-off`, resolved against `ctx.cwd`. */
+	killSwitchLocal?: string;
 }
 
 function branchEntries(ctx: SessionContext): readonly unknown[] {
@@ -69,7 +73,20 @@ function branchEntries(ctx: SessionContext): readonly unknown[] {
 	}
 }
 
-export default function todoLoop(pi: any): void {
+export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
+	const configPath = options.configPath ?? CONFIG_PATH;
+	const killSwitchGlobal = options.killSwitchGlobal ?? KILL_SWITCH_GLOBAL;
+	const killSwitchLocal = options.killSwitchLocal ?? ".pi/todo-loop-off";
+
+	const isDisabled = (ctx: SessionContext): boolean => {
+		try {
+			return existsSync(killSwitchGlobal) || existsSync(join(ctx.cwd, killSwitchLocal));
+		} catch {
+			// existsSync swallows ENOENT; anything else must not fail a turn.
+			return false;
+		}
+	};
+
 	const state: LoopState & { paused: boolean; reason: string } = {
 		...initialState(),
 		paused: false,
@@ -78,14 +95,13 @@ export default function todoLoop(pi: any): void {
 
 	pi.on("context", async (event: any, ctx: SessionContext) => {
 		if (isDisabled(ctx)) return undefined;
-		const original = event.messages as unknown[];
+		const original = Array.isArray(event.messages) ? (event.messages as unknown[]) : [];
 		const withoutMarker = original.filter((message) => {
 			const record = message as Record<string, unknown>;
 			return record.customType !== MARKER_TYPE;
 		});
-		const stripped = withoutMarker.length !== original.length;
 
-		const config = loadConfig(CONFIG_PATH);
+		const config = loadConfig(configPath);
 		const snapshot = readSnapshot(branchEntries(ctx));
 
 		if (!config.injectState || snapshot.open.length === 0) {
@@ -95,7 +111,7 @@ export default function todoLoop(pi: any): void {
 
 		return {
 			messages: [
-				...(stripped ? withoutMarker : original),
+				...withoutMarker,
 				{ role: "user", content: [{ type: "text", text: renderInjection(snapshot, config) }] },
 			],
 		};
@@ -104,7 +120,7 @@ export default function todoLoop(pi: any): void {
 	pi.on("turn_end", async (event: any, ctx: SessionContext) => {
 		if (isDisabled(ctx) || state.paused) return undefined;
 
-		const config = loadConfig(CONFIG_PATH);
+		const config = loadConfig(configPath);
 		const snapshot = readSnapshot(branchEntries(ctx));
 		const toolResultCount = Array.isArray(event.toolResults) ? event.toolResults.length : 0;
 
@@ -119,33 +135,38 @@ export default function todoLoop(pi: any): void {
 			config,
 		});
 
-		state.rounds = decision.next.rounds;
-		state.strikes = decision.next.strikes;
-		state.lastSignature = decision.next.lastSignature;
-		state.anchor = decision.next.anchor;
-		state.reason = decision.reason;
+		if (!decision.continue) {
+			Object.assign(state, decision.next, { reason: decision.reason });
+			return undefined;
+		}
 
-		if (!decision.continue) return undefined;
-
-		return {
+		// Build the proposal before committing the counters: a throw here (or a
+		// proposal pi rejects) must not leave `/todoloop` reporting a round that
+		// never happened.
+		const entries = Array.isArray(event.entries) ? (event.entries as unknown[]) : [];
+		const next = decision.next;
+		const proposal = {
 			continue: true,
 			entries: [
-				...(event.entries as unknown[]),
+				...entries,
 				{
 					type: "custom_message",
 					customType: MARKER_TYPE,
-					content: `<todo_loop n="${state.rounds}" open="${snapshot.open.length}"/>`,
+					content: `<todo_loop n="${next.rounds}" open="${snapshot.open.length}"/>`,
 					display: false,
 				},
 			],
 		};
+
+		Object.assign(state, next, { reason: decision.reason });
+		return proposal;
 	});
 
 	pi.registerCommand("todoloop", {
 		description: "Show or control the todo-driven continuation loop",
 		handler: async (args: string, ctx: SessionContext) => {
 			const command = (args ?? "").trim().toLowerCase();
-			const config = loadConfig(CONFIG_PATH);
+			const config = loadConfig(configPath);
 
 			if (command === "pause") {
 				state.paused = true;
@@ -177,7 +198,7 @@ export default function todoLoop(pi: any): void {
 					`rounds ${state.rounds}/${config.maxRounds} · strikes ${state.strikes}/${config.maxStrikes}`,
 					`open ${snapshot.open.length}/${snapshot.tasks.length} tracked · inject ${config.injectState ? "on" : "off"}`,
 					`last: ${state.reason}`,
-					`config ${CONFIG_PATH}`,
+					`config ${configPath}`,
 				].join("\n"),
 				"info",
 			);
@@ -185,4 +206,3 @@ export default function todoLoop(pi: any): void {
 	});
 }
 
-export { INJECT_TAG };

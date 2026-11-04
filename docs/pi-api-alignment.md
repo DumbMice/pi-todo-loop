@@ -14,7 +14,8 @@ the same commit as the change that depends on it.
 
 The contract is followed where it is documented: `turn_end` boundary proposals, draft entry types,
 `context` hook ownership of the message list, `display: false`, and `registerCommand`. Nothing here
-reaches into pi internals beyond the public extension surface.
+calls pi internals; item 1 nonetheless depends on behaviour pi documents nowhere, which is why it is
+listed below rather than assumed.
 
 What is unusual is not the API use but the *shape* of it: this extension exists to perform a
 continuation that pi does not expose as a single operation. Each client-side workaround is listed in
@@ -25,12 +26,17 @@ full. Items that produce no signal in the transcript are marked _(silent)_.
    invalid continuation and drops it. pi offers no `resume()` that appends nothing, so a continuation
    is always expressed as *one* appended entry. We append a `custom_message` with `display: false`:
    invisible in the TUI, ~40 characters in the journal _(silent in the transcript)_.
-2. **The marker is stripped from the provider request.** The `context` hook removes any message whose
-   `customType` is `todo-loop:continue` before serialization, so the model never sees the marker.
+2. **The marker is stripped on the path that appends the state block.** The `context` hook removes any
+   message whose `customType` is `todo-loop:continue` before serialization — but only when it also
+   appends the block. When `injectState` is false, when no tasks are open, or when the kill switch is
+   set, the hook returns no rewrite at all: the marker stays in the request and the model reads it.
+   Item 4 states that path.
 3. **Stripping the marker alone would be wrong.** Removing it leaves the request ending on an
-   assistant message, which some providers reject. Whenever the marker is stripped, the authoritative
-   task block is appended as a user-role message instead, so the tail is always non-assistant. The two
-   operations are coupled by construction; do not implement one without the other.
+   assistant message. pi's own boundary rejects that as an invalid continuation
+   (`_buildBoundaryContext().canContinue`), and some providers reject an assistant tail independently.
+   Whenever the marker is stripped, the authoritative task block is appended as a user-role message, so
+   the tail is never assistant. The two operations are coupled by construction; do not implement one
+   without the other.
 4. **With `injectState: false` the marker is kept rather than stripped.** The marker then carries the
    continuation and the tail, at the cost of the model seeing `<todo_loop n="1" open="2"/>`
    _(silent in the TUI, visible in context)_.
@@ -55,7 +61,8 @@ full. Items that produce no signal in the transcript are marked _(silent)_.
     compatibility check. The trade-off of dropping the type import: the compiler does not check event
     payload shapes, so `npm test` and a real `pi -e` run carry that weight, and the tested pi version
     is recorded in the table above rather than enforced.
-11. **A declared dependency on rpiv-todo's *persisted shape*, which is not its public API.** This
+11. **A declared dependency on rpiv-todo's *persisted shape*, which is not its public API** (checked
+    against `@juicesharp/rpiv-todo` 2.15.0; the symbols named below are that version's). This
     extension imports nothing from `@juicesharp/rpiv-todo` and therefore declares no dependency on it,
     but it reads two representations the package writes: `custom` entries with
     `customType: "rpiv-todo-state"`, and `todo` toolResult `details.tasks`. The package's own issues

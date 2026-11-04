@@ -12,8 +12,10 @@ src/state.ts              reads rpiv-todo state off the session branch
 src/inject.ts             renders the per-request <todo_loop_state> block
 src/config.ts             config load and coercion, defaults on any failure
 test/loop.test.ts         decision policy: caps, strikes, anchor reset, error outcomes
-test/state.test.ts        branch reader: custom entry, toolResult fallback, malformed input
+test/state.test.ts        branch reader: both shapes, recency preference, malformed input
 test/inject.test.ts       renderer and config coercion
+test/index.test.ts        the pi-facing half through a stub `pi`: tail coupling, kill switch, caps
+test/docs.test.ts         pins the tested-version table, the date and README link targets
 docs/pi-api-alignment.md  every deliberate workaround over pi's documented extension API
 README.md                 user-facing documentation
 AGENTS.md                 this file
@@ -21,7 +23,7 @@ CONTRIBUTING.md           four-line pointer to this file (GitHub convention)
 CHANGELOG.md              Keep a Changelog format, released and unreleased entries
 package.json              scripts, engines, the files allow-list, pi.extensions entry point
 tsconfig.json             the strict / noEmit settings used by typecheck
-.github/workflows/        test.yml (Node 22 and 24)
+.github/workflows/        test.yml (Node 22.6, 22 and 24: ci, test, typecheck, pack)
 ```
 
 ## Requirements and commands
@@ -35,7 +37,13 @@ npm install        # devDependencies only: typescript, @types/node
 npm test           # node:test, no model, no key, no network
 npm run typecheck  # tsc -p tsconfig.json, strict
 npm run pack:check # tarball contents: src, docs, README, AGENTS, CONTRIBUTING, LICENSE, CHANGELOG
+
+# one file, while iterating
+node --experimental-strip-types --no-warnings --test test/loop.test.ts
 ```
+
+There is no pi install and no build step: the source is TypeScript that pi loads directly, and
+`npm run typecheck` resolves no pi types because the extension imports none.
 
 ## Design decisions worth preserving
 
@@ -54,13 +62,22 @@ adding a `CHANGELOG.md` line — all in the same commit.
   resync handler. Memory would drift across forks and compaction; the walk is cheap.
 - **The decision is a pure function.** `decide()` in `src/loop.ts` takes a value and returns a value.
   It must stay free of pi, filesystem and time so the caps can be tested exhaustively.
+- **A stop keeps the counters; only a new human message resets them.** Clearing `rounds` / `strikes` on
+  stop re-arms a full budget on the next `turn_end` under the same anchor (another extension's
+  continuation, a queued message, a provider retry). The anchor comparison is the only reset.
+- **Open means "not finished".** `CLOSED_STATUSES` is an exclusion list (`completed`, `deleted`), not an
+  allow-list: a status the todo tool adds later must not make a task vanish and the loop report the
+  list clear while work remains.
+- **The newer of the two shapes wins.** Custom entry and toolResult fallback are compared by branch
+  position, not by type preference; preference by type would serve a stale list forever if the tool
+  stopped writing custom entries partway through a session.
 - **No runtime dependencies.** The only imports are `node:` builtins. Argument validation, config
   parsing and rendering are hand-written for that reason.
 - **Fail soft at the boundary.** Parsing a branch, a config file or an entry never throws: malformed
   input degrades to "no list" or to defaults. A thrown boundary handler is reported and the turn
   continues, but the loop would then stop silently — inert is better than loud.
 - **Nothing is written.** No files, no network, no process execution. The only reads are the optional
-  config and the session branch.
+  config, the two kill-switch paths and the session branch.
 - **The kill switch is checked in both hooks.** Disabling takes effect on the next request, without
   `/reload`.
 - **No pi type import; `pi: any` at the registration boundary.** Contexts the file reads are typed
@@ -88,7 +105,17 @@ introduces an edge.
 | `deleted` tasks leave list, open set and signature | `deleted tasks are excluded from tasks, open and signature` |
 | malformed entries degrade to the empty snapshot | `malformed or missing state degrades to the empty snapshot` |
 | config defaults survive garbage; fields are coerced | `missing or malformed config falls back to defaults`, `valid fields override, invalid ones are ignored` |
-| the injection shows open tasks only, bounded, `activeForm` for in_progress | `injection lists open tasks with their status`, `injection is bounded and reports the overflow`, `injection uses activeForm only for in_progress` |
+| the injection shows open tasks only, bounded, `activeForm` for in_progress | `injection lists open tasks with their status`, `injection is bounded and reports the overflow`, `injection uses activeForm only for in_progress`, `injection tolerates an empty subject` |
+| a status change moves the signature | `signature changes when a status changes` |
+| an unknown status counts as open | `an unknown status counts as open, not as done` |
+| a task without a usable id falls back to its position | `a task without a usable id falls back to its position, not to being dropped` |
+| the newer shape wins, in either order | `the newer of a custom entry and a toolResult wins, in either order` |
+| marker stripped ⇔ block appended | `context strips the marker and appends the state block when tasks are open`, `context keeps the marker when the list is clear`, `context keeps the marker when injection is disabled` |
+| the kill switch disables both hooks | `the kill switch disables both hooks` |
+| a continuation appends one hidden marker and preserves prior proposals | `turn_end requests one turn with a hidden marker when work is open` |
+| a malformed event payload does not throw | `turn_end tolerates a malformed event payload instead of throwing` |
+| the cap and pause gate the loop at the hook level | `the round cap is sticky for one human message`, `pause and resume gate the loop` |
+| the tested-version table is coherent | `the pi snapshot constant appears in the README and the register`, `the verification date appears in the README and the register`, `the tested rpiv-todo version is recorded in both places`, `the CHANGELOG documents the version in package.json`, `every README link target inside the repository exists` |
 
 ## Adding or changing a continuation rule
 
@@ -107,18 +134,26 @@ Ranked by how easily a small change breaks them.
 
 1. **The tail invariant.** A continuation whose projection ends on an assistant message is rejected by
    pi. Every branch of the `context` hook must leave a non-assistant tail; the coupling rule above is
-   the guard.
-2. **Counter lifecycle.** `rounds`, `strikes` and `anchor` are mutated in one place and reset in four.
-   A missing reset either loops forever or refuses to continue after one bad turn.
-3. **State shape drift in rpiv-todo.** The custom entry is read defensively and falls back to the
-   toolResult; keep `normalizeTask` tolerant of renamed fields (`content` vs `subject`).
-4. **Branch walking.** The reader breaks early only when it has both the list and the anchor. A change
-   that returns early on the list alone can pick up a stale anchor and reset the budget mid-run.
+   the guard, and `test/index.test.ts` pins the three branches.
+2. **Counter lifecycle.** `rounds`, `strikes` and `anchor` are mutated in one place and reset in three
+   (anchor change, `/todoloop reset`, process start). A missing reset either loops forever or refuses to
+   continue after one bad turn; a reset in the wrong place (inside `stop()`) silently re-arms the cap.
+3. **The anchor.** It must be human-authored and never empty. `#<index>` is the fallback when an entry
+   carries no id; returning `""` would make "no anchor yet" and "this entry had no id"
+   indistinguishable, freezing the per-message reset.
+4. **State shape drift in the todo tool.** Both shapes are read defensively; keep `normalizeTask`
+   tolerant of renamed fields (`content` vs `subject`) and of unusable ids.
+5. **Branch walking.** The reader breaks early on the newest *custom* entry plus the anchor, and keeps
+   walking to find a newer toolResult if it has not seen one. An early return on the list alone can pick
+   up a stale anchor and reset the budget mid-run.
 
 ## Tests
 
 `test/*.test.ts` uses `node:test` and imports the source directly; nothing needs a model, a key or a
-network. When fixing a bug, add the failing case first. Run `npm test` before every commit; CI repeats
+network. `test/index.test.ts` fakes pi's surface (an object with `on` and `registerCommand`, plus a
+`SessionContext` over a hand-built branch) and asserts the hook *return values*; it is the only place
+the tail coupling is checked. `test/docs.test.ts` reads the repository's own Markdown, which is how the
+tested-version table is enforced. When fixing a bug, add the failing case first. Run `npm test` before every commit; CI repeats
 it on Node 22 and 24 together with `npm run typecheck` and `npm run pack:check`.
 
 ### Try a change locally
@@ -145,11 +180,13 @@ grep -c 'todo-loop:continue' ~/.pi/agent/sessions/<project>/*.jsonl   # one per 
   API, and the record of which versions those were established against. Add an item when behaviour
   deviates; items with no output signal are marked _(silent)_. The tested-version table at the top,
   `PI_API_SNAPSHOT` in `src/index.ts`, and the README *Tested against* table move together in the
-  same commit as the change that depends on them. Note that `@juicesharp/rpiv-todo` is a *shape*
-  dependency only (register item 11): it is never imported, so it has no `package.json` entry, and
-  its tested version lives in that table rather than in a constant.
+  same commit as the change that depends on them, and `test/docs.test.ts` fails if the constant, the
+  date or the tested rpiv-todo version goes missing from either file. Note that `@juicesharp/rpiv-todo`
+  is a *shape* dependency only (register item 11): it is never imported, so it has no `package.json`
+  entry, and its tested version lives in that table rather than in a constant.
 - `CHANGELOG.md` follows Keep a Changelog. Put unreleased work under `[Unreleased]` with
-  Added/Changed/Fixed headings; add the version heading when the release is tagged.
+  Added/Changed/Fixed headings; add the version heading when the release is tagged. `test/docs.test.ts`
+  fails if the published version has no entry, so this one is enforced.
 - `AGENTS.md` (this file) holds contributor, architecture and release material.
 
 ## Release process
@@ -170,8 +207,17 @@ git push origin main --follow-tags
 ```
 
 `--follow-tags` pushes only **annotated** tags, which is why the recipe uses `git tag -a`; a
-lightweight tag would stay local and publish nothing. The publish workflow runs the suite and the
-typecheck, refuses to publish when the tag and `package.json` version disagree, then publishes.
+lightweight tag would stay local and publish nothing.
+
+**There is no publish workflow in this repository.** `.github/workflows/test.yml` runs the suite,
+typecheck and pack check only. After pushing the tag, publish from the tagged commit in a clean tree:
+
+```bash
+npm publish
+```
+
+If a trusted-publishing workflow is added later, it must run those three checks and refuse to publish
+when the tag and `package.json` version disagree. Until then, the tag is a bookmark, not a release.
 
 ## Commits and security
 

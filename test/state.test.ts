@@ -94,5 +94,45 @@ test("malformed or missing state degrades to the empty snapshot", () => {
 	assert.deepEqual(readSnapshot([]), EMPTY_SNAPSHOT);
 	assert.deepEqual(readSnapshot([{ type: "custom", customType: "rpiv-todo-state" }]), EMPTY_SNAPSHOT);
 	assert.deepEqual(readSnapshot([{ type: "message" }, null, 42]), EMPTY_SNAPSHOT);
-	assert.deepEqual(readSnapshot([customEntry([{ subject: "no id" }])]), EMPTY_SNAPSHOT);
+	assert.deepEqual(readSnapshot([customEntry([])]), { ...EMPTY_SNAPSHOT, anchor: "" });
+});
+
+test("a task without a usable id falls back to its position, not to being dropped", () => {
+	const snapshot = readSnapshot([customEntry([{ subject: "no id" }, { id: "x", subject: "bad" }])]);
+	assert.deepEqual(
+		snapshot.tasks.map((t) => t.id),
+		[0, 1],
+		"dropping it would shrink the list toward clear",
+	);
+});
+
+test("an unknown status counts as open, not as done", () => {
+	const snapshot = snapshotFrom([
+		{ id: 1, subject: "a", status: "blocked" },
+		{ id: 2, subject: "b", status: "completed" },
+		{ id: 3, subject: "c", status: "deleted" },
+	]);
+	assert.deepEqual(
+		snapshot.open.map((t) => t.id),
+		[1],
+	);
+});
+
+test("the newer of a custom entry and a toolResult wins, in either order", () => {
+	const tool = messageEntry("toolResult", {
+		toolName: "todo",
+		details: { tasks: [{ id: 9, subject: "from tool", status: "pending" }] },
+	});
+	const custom = customEntry([{ id: 8, subject: "from custom", status: "pending" }]);
+
+	const customNewer = readSnapshot([tool, custom]);
+	assert.deepEqual(
+		customNewer.open.map((t) => t.subject),
+		["from custom"],
+	);
+	const toolNewer = readSnapshot([custom, tool]);
+	assert.deepEqual(
+		toolNewer.open.map((t) => t.subject),
+		["from tool"],
+	);
 });

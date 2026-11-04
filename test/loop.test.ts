@@ -88,11 +88,19 @@ test("a new human message resets the budget", () => {
 	assert.equal(decision.next.anchor, "user-2");
 });
 
-test("a stop clears the counters but keeps the anchor", () => {
+test("a stop keeps the counters, so a cap stays shut for the same anchor", () => {
 	const spent = { rounds: 5, strikes: 0, lastSignature: "1:pending", anchor: "user-1" };
 	const decision = decide(input({ state: spent, openCount: 0 }));
-	assert.equal(decision.next.rounds, 0);
+	assert.equal(decision.next.rounds, 5, "only a new human message resets the budget");
 	assert.equal(decision.next.anchor, "user-1");
+});
+
+test("a new human message after a stop starts a fresh budget", () => {
+	const spent = { rounds: 5, strikes: 2, lastSignature: "1:pending", anchor: "user-1" };
+	const decision = decide(input({ state: spent, anchor: "user-2" }));
+	assert.equal(decision.continue, true);
+	assert.equal(decision.next.rounds, 1);
+	assert.equal(decision.next.strikes, 0);
 });
 
 test("config caps are honoured", () => {

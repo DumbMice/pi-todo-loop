@@ -1,7 +1,7 @@
 {
 	"name": "pi-todo-loop",
 	"version": "0.1.0",
-	"description": "Pi extension: keep the agent working while an rpiv-todo list still has open tasks, and keep that list in context across compaction.",
+	"description": "Keep pi working while a todo list still has open tasks, and keep that list in context across compaction.",
 	"type": "module",
 	"license": "MIT",
 	"author": {
@@ -10,13 +10,15 @@
 	},
 	"keywords": [
 		"pi-package",
-		"pi",
 		"pi-extension",
 		"pi-coding-agent",
 		"todo",
+		"task-list",
 		"continuation",
-		"rpiv-todo",
-		"agent-loop"
+		"agentic-loop",
+		"compaction",
+		"deepseek",
+		"rpiv-todo"
 	],
 	"homepage": "https://github.com/DumbMice/pi-todo-loop#readme",
 	"repository": {

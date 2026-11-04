@@ -2,7 +2,7 @@
  * rpiv-todo state, read-only.
  *
  * The extension never writes todo state and never imports rpiv-todo. It reads
- * the two shapes rpiv-todo persists on the session branch:
+ * the two shapes a todo tool persists on the session branch:
  *
  *   1. `custom` entries with `customType: "rpiv-todo-state"` — the authoritative
  *      snapshot written by every mutation (state/replay.ts upstream).
@@ -11,6 +11,9 @@
  *
  * Both are extension-authored session data, which pi does not send to the LLM
  * (that is exactly the gap this extension closes).
+ *
+ * Everything here fails soft: a malformed branch degrades to "no list" rather
+ * than throwing inside a turn boundary.
  */
 
 export interface Task {
@@ -23,11 +26,11 @@ export interface Task {
 export interface Snapshot {
 	/** Non-deleted tasks, in list order. */
 	tasks: Task[];
-	/** Tasks in `pending` or `in_progress`. */
+	/** Tasks that are not `completed` or `deleted`. */
 	open: Task[];
 	/** `id:status` joined — cheap change detector. */
 	signature: string;
-	/** Id of the newest human message on the branch. */
+	/** Id of the newest human message on the branch; never empty once seen. */
 	anchor: string;
 }
 
@@ -35,12 +38,16 @@ export const EMPTY_SNAPSHOT: Snapshot = { tasks: [], open: [], signature: "", an
 
 const TODO_CUSTOM_TYPE = "rpiv-todo-state";
 const TODO_TOOL_NAME = "todo";
+const CLOSED_STATUSES = new Set(["completed", "deleted"]);
 
-export function normalizeTask(value: unknown): Task | undefined {
+/**
+ * Normalise one task. A missing or unusable id falls back to the array index so
+ * a single bad field cannot silently shrink the list toward "clear".
+ */
+export function normalizeTask(value: unknown, index = 0): Task | undefined {
 	if (typeof value !== "object" || value === null) return undefined;
 	const record = value as Record<string, unknown>;
 	const id = typeof record.id === "number" ? record.id : Number(record.id);
-	if (!Number.isFinite(id)) return undefined;
 	const subject =
 		typeof record.subject === "string"
 			? record.subject
@@ -48,15 +55,21 @@ export function normalizeTask(value: unknown): Task | undefined {
 				? record.content
 				: "";
 	return {
-		id,
+		id: Number.isInteger(id) && id >= 0 ? id : index,
 		subject,
 		status: typeof record.status === "string" ? record.status : "pending",
 		...(typeof record.activeForm === "string" ? { activeForm: record.activeForm } : {}),
 	};
 }
 
+/**
+ * Open means "not finished". An allow-list would fail closed: a status the
+ * todo tool adds or renames later (`blocked`, a localised value) would vanish
+ * from the injected block and the loop would report the list clear with work
+ * still outstanding.
+ */
 export function isOpen(task: Task): boolean {
-	return task.status === "pending" || task.status === "in_progress";
+	return !CLOSED_STATUSES.has(task.status);
 }
 
 export function snapshotFrom(tasks: readonly Task[], anchor = ""): Snapshot {
@@ -88,23 +101,26 @@ function tasksFromEntry(entry: Record<string, unknown>): Task[] | undefined {
 	return undefined;
 }
 
-function anchorFromEntry(entry: Record<string, unknown>): string | undefined {
+/** A human message anchor: never empty, so the "no anchor yet" sentinel stays unambiguous. */
+function anchorFromEntry(entry: Record<string, unknown>, index: number): string | undefined {
 	if (entry.type !== "message") return undefined;
 	const message = entry.message as Record<string, unknown> | undefined;
 	if (message?.role !== "user") return undefined;
-	return String(entry.id ?? "");
+	return String(entry.id ?? `#${index}`);
 }
 
 /**
  * Read the latest snapshot from a branch, newest entry first.
  *
- * Walks backwards once, collecting the newest todo state and the newest human
- * message id. Missing or malformed entries degrade to an empty snapshot rather
- * than throwing inside a turn boundary.
+ * Both shapes are located by their position, and the newer one wins: preference
+ * by type alone would serve a stale list forever if the todo tool stopped
+ * writing custom entries partway through a session.
  */
 export function readSnapshot(entries: readonly unknown[]): Snapshot {
-	let tasks: Task[] | undefined;
+	let custom: Task[] | undefined;
+	let customIndex = -1;
 	let fallback: Task[] | undefined;
+	let fallbackIndex = -1;
 	let anchor = "";
 
 	for (let index = entries.length - 1; index >= 0; index -= 1) {
@@ -113,23 +129,32 @@ export function readSnapshot(entries: readonly unknown[]): Snapshot {
 		const record = entry as Record<string, unknown>;
 
 		if (anchor === "") {
-			const found = anchorFromEntry(record);
+			const found = anchorFromEntry(record, index);
 			if (found !== undefined) anchor = found;
 		}
 
-		if (tasks === undefined) {
-			const isCustom = record.type === "custom";
-			if (isCustom) {
-				const found = tasksFromEntry(record);
-				if (found !== undefined) tasks = found;
-			} else if (fallback === undefined) {
-				const found = tasksFromEntry(record);
-				if (found !== undefined) fallback = found;
+		if (record.type === "custom" && custom === undefined) {
+			const found = tasksFromEntry(record);
+			if (found !== undefined) {
+				custom = found;
+				customIndex = index;
+			}
+		} else if (fallback === undefined) {
+			const found = tasksFromEntry(record);
+			if (found !== undefined) {
+				fallback = found;
+				fallbackIndex = index;
 			}
 		}
 
-		if (tasks !== undefined && anchor !== "") break;
+		if (custom !== undefined && anchor !== "") break;
 	}
 
-	return snapshotFrom(tasks ?? fallback ?? [], anchor);
+	const newest =
+		custom !== undefined && (fallback === undefined || customIndex > fallbackIndex)
+			? custom
+			: fallback !== undefined
+				? fallback
+				: undefined;
+	return snapshotFrom(newest ?? [], anchor);
 }

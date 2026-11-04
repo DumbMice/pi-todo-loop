@@ -60,8 +60,14 @@ export interface Decision {
 	reason: string;
 }
 
+/**
+ * A stop keeps the counters. Only a new human message starts a new budget: a cap
+ * or strike stop that cleared them would re-arm the full budget on the next
+ * `turn_end` under the same anchor (another extension's continuation, a queued
+ * message, a provider retry).
+ */
 function stop(state: LoopState, reason: string): Decision {
-	return { continue: false, next: { ...state, rounds: 0, strikes: 0, lastSignature: "" }, reason };
+	return { continue: false, next: { ...state }, reason };
 }
 
 /**
