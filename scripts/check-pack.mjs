@@ -9,6 +9,7 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { firstPack } from "./pack-json.mjs";
 
 const REQUIRED = [
 	"src/index.ts",
@@ -28,7 +29,11 @@ const REQUIRED = [
 const FORBIDDEN = ["test", "test/", ".github", "node_modules", "package-lock.json"];
 
 const raw = execFileSync("npm", ["pack", "--dry-run", "--json"], { encoding: "utf8" });
-const [tarball] = JSON.parse(raw);
+const tarball = firstPack(JSON.parse(raw));
+if (!tarball || !Array.isArray(tarball.files)) {
+	console.error("pack check failed — npm pack produced no file list");
+	process.exit(1);
+}
 const files = new Set(tarball.files.map((file) => file.path));
 
 const missing = REQUIRED.filter((path) => !files.has(path));

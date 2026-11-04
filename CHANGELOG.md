@@ -34,6 +34,9 @@ Initial release.
 - The documentation is split: `README.md` is a user-facing page (what it does, quick start, one example,
   configuration, commands, troubleshooting, uninstall), and `docs/behaviour.md` holds the mechanics it
   used to inline — marker lifetime, role alternation, counter semantics, reason strings, scope and cost.
+- `scripts/pack-json.mjs` normalises `npm pack --json`, whose shape differs between npm 10
+  (array) and npm 11 (object keyed by package name); the publish workflow upgrades npm, so
+  both are exercised.
 - Tests, runnable with no dependencies: decision policy, state reader, injection renderer, config
   loader, the pi-facing hooks through a stub `pi`, a captured real branch, and documentation tests
   that pin the tested-version table, the invariant map, the reason table, the configuration table and

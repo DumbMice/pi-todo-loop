@@ -62,7 +62,7 @@ jobs:
         run: |
           npm pack --pack-destination /tmp
           mkdir -p /tmp/packed
-          tarball="$(npm pack --pack-destination /tmp --json | node -e 'let b="";process.stdin.on("data",(c)=>b+=c).on("end",()=>console.log(JSON.parse(b)[0].filename))')"
+          tarball="$(node scripts/pack-json.mjs)"
           tar xzf "/tmp/$tarball" -C /tmp/packed
           test -f /tmp/packed/package/src/index.ts
           node -e '
