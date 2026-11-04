@@ -28,11 +28,18 @@ function label(status: string, subject: string, activeForm?: string): string {
  * like one of our own directives, or push the block to an unbounded size.
  */
 export function sanitizeLabel(text: string): string {
-	return text
-		.replace(/[\r\n\t]+/g, " ")
-		.replaceAll("</", "<\\/")
-		.trim()
-		.slice(0, 120);
+	const flattened = text.replace(/[\r\n\t]+/g, " ");
+	// C0/C1 controls, bidi overrides and isolates, zero-width and BOM characters: a
+	// NUL can break JSON encoding and a bidi override can visually reverse a line in
+	// the transcript.
+	const cleaned = flattened.replace(
+		/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g,
+		"",
+	);
+	const escaped = cleaned.replaceAll("</", "<\\/");
+	// By code point, never UTF-16 units: `slice` can cut a surrogate pair in half and
+	// leave a lone surrogate in the request.
+	return Array.from(escaped).slice(0, 120).join("").trim();
 }
 
 export function renderInjection(snapshot: Snapshot, config: LoopConfig): string {

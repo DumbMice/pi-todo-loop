@@ -100,3 +100,23 @@ test("the block ends on the concession, not on a call to act", () => {
 	assert.match(lastBody, /leave it open and say what is blocking it/i);
 	assert.doesNotMatch(lastBody, /carry on with the open tasks/i);
 });
+
+test("truncation never splits a surrogate pair", () => {
+	const LONE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+	for (const pad of [117, 118, 119, 120, 121]) {
+		const label = sanitizeLabel("a".repeat(pad) + "😀" + "tail");
+		assert.doesNotMatch(label, LONE, `lone surrogate at pad ${pad}`);
+		assert.ok(Array.from(label).length <= 120);
+	}
+	const block = renderInjection(
+		snapshotFrom([{ id: 1, status: "pending", subject: "a".repeat(119) + "😀" }]),
+		DEFAULTS,
+	);
+	assert.doesNotMatch(block, LONE, "the rendered block stays valid UTF-16");
+});
+
+test("controls, bidi overrides and zero-width characters are stripped", () => {
+	const label = sanitizeLabel("a\u0000b\u0007c\u202ed\u200be\u2066f");
+	assert.equal(label, "abcdef");
+	assert.doesNotMatch(label, /[\u0000-\u001f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/);
+});
