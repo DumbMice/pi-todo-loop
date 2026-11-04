@@ -33,8 +33,16 @@ tsconfig.json             the strict / noEmit settings used by typecheck
 
 ## Requirements and commands
 
-Node >= 22.6 (`engines`; the entry point is TypeScript and the test runner uses
-`--experimental-strip-types`). devDependencies stay limited to `typescript` and `@types/node`; the test
+Node >= 22.19 (`engines`, the floor pi itself requires; the entry point is TypeScript and the test
+runner uses `--experimental-strip-types`, which exists from 22.6). **If `npm test` fails with
+`node: bad option: --experimental-strip-types`, a pre-22 node is first in `PATH`** — nvm's v20 shadows
+pi's own node in a typical shell. `pretest` now says so instead of leaking the raw node error. Run the
+publish (and the tests) with pi's node first:
+
+```bash
+export PATH="$HOME/.local/share/pi-node/current/bin:$PATH"
+npm publish --access public
+``` devDependencies stay limited to `typescript` and `@types/node`; the test
 workflow installs with `npm ci`.
 
 ```bash

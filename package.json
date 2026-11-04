@@ -49,7 +49,8 @@
 		"test": "node --experimental-strip-types --no-warnings --test test/*.test.ts",
 		"typecheck": "tsc -p tsconfig.json",
 		"pack:check": "node scripts/check-pack.mjs",
-		"prepublishOnly": "npm test && npm run typecheck && npm run pack:check"
+		"prepublishOnly": "npm test && npm run typecheck && npm run pack:check",
+		"pretest": "node -e \"const [a,b]=process.versions.node.split('.').map(Number); if(a<22||(a===22&&b<6)){console.error('pi-todo-loop tests need Node >= 22.6, but node '+process.versions.node+' is first in PATH.\\nPut a newer node first, for example pi own node:\\n  ~/.local/share/pi-node/current/bin'); process.exit(1)}\""
 	},
 	"engines": {
 		"node": ">=22.19"
