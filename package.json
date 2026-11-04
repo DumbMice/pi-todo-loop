@@ -1,0 +1,55 @@
+{
+	"name": "pi-todo-loop",
+	"version": "0.1.0",
+	"description": "Pi extension: keep the agent working while an rpiv-todo list still has open tasks, and keep that list in context across compaction.",
+	"type": "module",
+	"license": "MIT",
+	"author": "yangbangcheng",
+	"keywords": [
+		"pi-package",
+		"pi",
+		"pi-extension",
+		"pi-coding-agent",
+		"todo",
+		"continuation",
+		"rpiv-todo",
+		"agent-loop"
+	],
+	"homepage": "https://github.com/yangbangcheng/pi-todo-loop#readme",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/yangbangcheng/pi-todo-loop.git"
+	},
+	"bugs": {
+		"url": "https://github.com/yangbangcheng/pi-todo-loop/issues"
+	},
+	"pi": {
+		"extensions": [
+			"./src/index.ts"
+		]
+	},
+	"files": [
+		"src",
+		"README.md",
+		"CHANGELOG.md",
+		"LICENSE"
+	],
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*"
+	},
+	"peerDependenciesMeta": {
+		"@earendil-works/pi-coding-agent": {
+			"optional": true
+		}
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"scripts": {
+		"test": "node --experimental-strip-types --test test/*.test.ts",
+		"typecheck": "tsc --noEmit"
+	},
+	"engines": {
+		"node": ">=22.18"
+	}
+}
