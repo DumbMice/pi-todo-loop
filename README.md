@@ -33,9 +33,10 @@ pi:   All 12 tasks are complete. Everything below is verified: …
       ← list is clear → the loop stops and stays stopped
 ```
 
-That is the happy path. The other two are just as common, and the counters decide them. A **strike**
-requires *both* no tool call and no list change in the same turn — running `bash` while never touching
-the list is not a strike, it is progress:
+That is the happy path. The other two are just as common, and the counters decide them. A **strike** is a
+*settle* — a response with no tool calls — whose list is unchanged since the last settle that continued.
+A turn that ran tools is never a strike and also clears one; it never spends a round either, because pi
+makes that next request itself:
 
 ```text
 pi:   The work is done as far as I can tell.
@@ -121,7 +122,7 @@ budget meaningless. `pi list` shows the installed sources; remove one, then `/re
 
 ### Confirm it is running
 
-After a turn that ends with open tasks, `/todoloop` should read:
+After a **settle** — a response that made no tool call — while tasks are open, `/todoloop` should read:
 
 ```
 todo-loop active
@@ -131,7 +132,9 @@ last: continuing: round 1/12, 2 open
 config ~/.pi/agent/todo-loop.json
 ```
 
-`strikes` reads `1/2` after a turn that neither ran a tool nor changed the list.
+`strikes` reads `1/2` after a settle that left the list unchanged. A turn that ended in a tool call
+changes nothing here: `rounds` stays where it was, `last:` keeps its previous value, no marker is
+written.
 
 To count continuations in the session file:
 
@@ -167,7 +170,7 @@ each. They are inert otherwise, and nothing was ever written to your working tre
 | Key | Default | Notes |
 |---|---|---|
 | `maxRounds` | `12` | consecutive continuations allowed per human message |
-| `maxStrikes` | `2` | consecutive turns that neither ran a tool nor changed the list before stopping |
+| `maxStrikes` | `2` | settles in a row that leave the list unchanged before stopping; a tool turn clears them |
 | `injectState` | `true` | append the authoritative task list to each request |
 | `maxInjectedTasks` | `6` | rows rendered before `… and N more` |
 
@@ -182,7 +185,7 @@ cannot defeat the cap it configures.
 |---|---|
 | `/todoloop` | status: mode, rounds, strikes, open count, why it last stopped, config path |
 | `/todoloop pause` | stop continuing until you resume or restart |
-| `/todoloop resume` | continue again |
+| `/todoloop resume` | allow the next settle to continue again |
 | `/todoloop reset` | clear the round and strike counters and forget the list signature |
 
 Any other argument is reported and ignored, so `/todoloop pause now` does not silently do nothing.
@@ -256,11 +259,11 @@ Reason strings from `/todoloop`, and what they mean:
 | `continuing: round 1/12, 2 open` | working as intended |
 | `stopped: list is clear` | every remaining task is `completed` — a list whose tasks are all `deleted` reports `no list` instead |
 | `stopped: no list` | no recognised todo state on the branch — see the four causes above |
-| `stopped: 2 consecutive turns with no progress, 2 open` | the model stopped touching the list and stopped running tools; raise `maxStrikes` only if you want more attempts |
+| `stopped: 2 consecutive turns with no progress, 2 open` | two settles in a row left the list unchanged — the model may still be running tools, so raise `maxStrikes` only if you want more attempts |
 | `stopped: round cap 12 reached, 2 open` | the budget is spent; send a message to start a new one |
 | `stopped: turn outcome was error` / `aborted` | the provider failed, or you aborted the turn |
 | `paused by user` | `/todoloop pause`; `/todoloop resume` or restart |
-| `resumed by user` | `/todoloop resume`; continuations are allowed again |
+| `resumed by user` | `/todoloop resume`; the next settle may continue (a chain already stopped stays stopped — send a message) |
 | `counters reset` | `/todoloop reset` cleared the rounds, the strikes and the list signature |
 | `idle` | nothing has run yet in this process, e.g. straight after `/reload` |
 

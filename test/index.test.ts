@@ -286,3 +286,48 @@ test("a human-role tail receives the block instead of a second user message", as
 	assert.equal(parts.length, 2, "the block becomes an extra content part");
 	assert.match(parts[1].text, /tracked task\(s\) are still open/);
 });
+
+test("tool turns clear a pending strike but never spend a round", async () => {
+	// The case this extension exists for: the model runs tools and never updates the
+	// list. Without clearing, two settles collect two strikes and it stops with
+	// "no progress" while it was working the whole time.
+	const h = harness(branchWith([task(1, "pending")]));
+	const settle = { outcome: "completed", toolResults: [], entries: [] };
+	const toolTurn = { outcome: "completed", toolResults: [{ role: "toolResult" }], entries: [] };
+
+	assert.equal((await run(h, "turn_end", settle))?.continue, true, "settle 1 is free");
+	assert.equal((await run(h, "turn_end", settle))?.continue, true, "settle 2 spends strike 1");
+
+	for (let turn = 0; turn < 3; turn += 1) assert.equal(await run(h, "turn_end", toolTurn), undefined);
+
+	await h.commands.todoloop.handler("", h.ctx);
+	assert.match(h.notices.at(-1) as string, /rounds 2\/12 · strikes 0\/2/, "the tool turns cleared the strike");
+
+	const next = await run(h, "turn_end", settle);
+	assert.equal(next?.continue, true, "so the next settle continues instead of stopping");
+});
+
+test("a marker after a human message still yields one user-role tail", async () => {
+	// The queued-message order: assistant, human message, marker. Removing the marker
+	// must not leave the block standing next to the human's own message.
+	const h = harness(branchWith([task(1, "pending")]));
+	const result = await run(h, "context", {
+		messages: [
+			{ role: "assistant", content: "a" },
+			{ role: "user", content: "actually, do this instead" },
+			marker(),
+		],
+	});
+	assert.equal(result.messages.length, 2, "no third message");
+	assert.equal(result.messages.at(-1).role, "user");
+	assert.equal(result.messages.at(-1).content.length, 2, "the block is merged into the human message");
+});
+
+test("the status header says stopped once the budget is shut", async () => {
+	const h = harness(branchWith([task(1, "pending")]), { maxRounds: 1 });
+	const work = { outcome: "completed", toolResults: [], entries: [] };
+	await run(h, "turn_end", work);
+	await run(h, "turn_end", work);
+	await h.commands.todoloop.handler("", h.ctx);
+	assert.match(h.notices.at(-1) as string, /todo-loop stopped/);
+});

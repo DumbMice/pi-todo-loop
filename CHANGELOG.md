@@ -13,8 +13,9 @@ Initial release.
 - `turn_end` continuation while a todo list has open tasks — anything not `completed` or
   `deleted` — with a per-human-message round cap (`maxRounds`, default 12) and a
   no-progress strike budget (`maxStrikes`, default 2). Only a settle spends a round: a turn
-  that ended in a tool call already causes pi's next request and costs nothing. A stop keeps
-  the counters: only a new human message starts a new budget.
+  that ended in a tool call already causes pi's next request and costs nothing — but it clears a
+  pending strike, because it is work. A stop keeps the counters: only a new human message starts a
+  new budget.
 - Per-request injection of the authoritative open-task list through the `context` hook,
   never persisted, closing the post-compaction context hole
   ([rpiv-mono#222](https://github.com/juicesharp/rpiv-mono/issues/222)) and the "model

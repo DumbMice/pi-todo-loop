@@ -76,6 +76,10 @@ adding a `CHANGELOG.md` line — all in the same commit.
 - **Only a settle spends a round.** `turn_end` fires for every assistant response, including one that
   ended in a tool call; those already cause pi's next request, so the hook returns before deciding. A
   round, a marker and a strike are therefore always about a turn that would have ended the run.
+- **A tool turn clears a strike and spends no round.** Tool turns already cause pi's next request, so
+  they must not consume the budget; but they are work, so they reset `strikes`. Without that, a model
+  that runs tools and never updates the list collects two strikes across its settles and stops claiming
+  "no progress" while it was working.
 - **A stop keeps the counters; only a new human message resets them.** Clearing `rounds` / `strikes` on
   stop re-arms a full budget on the next `turn_end` under the same anchor (another extension's
   continuation, a provider retry). The anchor comparison is the only *automatic* reset;
@@ -131,8 +135,9 @@ introduces an edge.
 | a malformed context payload is not rewritten | `context leaves a malformed payload alone instead of rewriting it` |
 | either kill switch disables both hooks | `the global kill switch disables both hooks`, `the project-local kill switch disables both hooks` |
 | only a settle spends a round: tool turns cost nothing | `a turn that ran tools spends no round and appends no marker` |
+| a tool turn clears a pending strike | `tool turns clear a pending strike but never spend a round` |
 | a continuation appends one hidden `custom_message` with a constant body and preserves prior proposals | `turn_end requests one turn with a hidden marker when work is open` |
-| a human-role tail receives the block instead of a second message | `a human-role tail receives the block instead of a second user message` |
+| a user-role tail receives the block instead of a second message (marker first dropped) | `a human-role tail receives the block instead of a second user message`, `a marker after a human message still yields one user-role tail` |
 | a malformed event payload does not throw | `turn_end tolerates a malformed event payload instead of throwing` |
 | clamped and invalid config values fall back | `numbers are clamped so a typo cannot defeat the cap it configures`, `a value below 1 is treated as invalid, not as zero` |
 | an errored or aborted turn is never continued | `turn_end stops on an errored or aborted turn and does not spend a round` |

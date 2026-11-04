@@ -119,28 +119,34 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 		// alternation-requiring providers reject. So markers stay in history; only a
 		// marker sitting at the tail (the continuation request about to be made) is
 		// replaced by the state block, so the request never ends on user → user.
-		const block = renderInjection(snapshot, config);
-		const last = original.length - 1;
-		const tail = (original[last] ?? null) as Record<string, unknown> | null;
-		const text = { type: "text", text: block };
+		const text = { type: "text", text: renderInjection(snapshot, config) };
+		const isMarker = (message: unknown): boolean =>
+			(message as Record<string, unknown> | null)?.customType === MARKER_TYPE;
+		const isUserRole = (message: unknown): boolean => {
+			const record = message as Record<string, unknown> | null;
+			if (record === null) return false;
+			// A custom_message projects to a user-role message; anything else is user
+			// only when its role says so.
+			return typeof record.customType === "string" ? record.role !== "assistant" : record.role === "user";
+		};
 
-		// Our own marker at the tail is replaced: one user-role tail, no marker text.
-		if (tail?.customType === MARKER_TYPE) {
-			return { messages: [...original.slice(0, last), { role: "user", content: [text] }] };
+		// Reduce to a tail that is not one of our markers: a marker is bookkeeping, and
+		// leaving it next to the block would send two user-role messages in a row.
+		let base = original;
+		while (base.length > 0 && isMarker(base[base.length - 1])) base = base.slice(0, -1);
+
+		const tail = base.length > 0 ? base[base.length - 1] : null;
+		if (tail !== null && isUserRole(tail)) {
+			// Merge into the human's own message (or another extension's user message)
+			// instead of adding a second one after it.
+			const record = tail as Record<string, unknown>;
+			const content = Array.isArray(record.content)
+				? [...(record.content as unknown[]), text]
+				: [{ type: "text", text: String(record.content ?? "") }, text];
+			return { messages: [...base.slice(0, -1), { ...record, content }] };
 		}
 
-		// Any other human-role tail (a person's message, another extension's marker)
-		// gets the block appended to it rather than a second user message after it.
-		const tailRole = tail?.role;
-		if (tail !== null && (tailRole === "user" || (typeof tail.customType === "string" && tailRole !== "assistant"))) {
-			const content = Array.isArray(tail.content)
-				? [...(tail.content as unknown[]), text]
-				: [{ type: "text", text: String(tail.content ?? "") }, text];
-			const merged = { ...tail, content };
-			return { messages: [...original.slice(0, last), merged] };
-		}
-
-		return { messages: [...original, { role: "user", content: [text] }] };
+		return { messages: [...base, { role: "user", content: [text] }] };
 	});
 
 	pi.on("turn_end", async (event: any, ctx: SessionContext) => {
@@ -153,7 +159,15 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 		// tool call. Such a turn already causes pi's next request, so a continuation
 		// would be redundant — and counting it as a round spends the budget on work the
 		// loop did not cause. Only a settle (no tool results) can spend a round.
-		if (toolResultCount > 0) return undefined;
+		//
+		// A tool turn is still *work*, so it clears a pending strike: without this, a
+		// model that runs tools and never updates the list (the case this extension is
+		// for) collects two strikes across its settles and stops with "no progress"
+		// while it was working the whole time.
+		if (toolResultCount > 0) {
+			state.strikes = 0;
+			return undefined;
+		}
 
 		const decision = decide({
 			outcome: String(event?.outcome),
@@ -230,7 +244,9 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 				? "DISABLED (kill-switch present)"
 				: state.paused
 					? "PAUSED"
-					: "active";
+					: state.reason.startsWith("stopped:")
+						? "stopped (next human message starts a new budget)"
+						: "active";
 			ctx.ui?.notify?.(
 				[
 					`todo-loop ${mode}`,

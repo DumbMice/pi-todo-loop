@@ -28,7 +28,7 @@ full. Items that produce no signal in the transcript are marked _(silent)_.
    projection must end on a message whose role is not `assistant` — otherwise the boundary reports an
    invalid continuation and drops it. pi offers no `resume()` that appends nothing, so a continuation
    is always expressed as *one* appended entry. We append a `custom_message` with `display: false`:
-   invisible in the TUI, about 120 bytes per continuation in the journal _(silent in the transcript)_.
+   invisible in the TUI, about 200 bytes per continuation in the journal _(silent in the transcript)_.
 2. **Markers stay in history and are not stripped.** They sit between two assistant turns, so they are
    what keeps the conversation alternating: `assistant → marker(user) → assistant`. Removing them
    exposes runs of consecutive assistant messages, which alternation-requiring providers reject — a
