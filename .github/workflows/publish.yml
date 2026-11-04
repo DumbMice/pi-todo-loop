@@ -19,8 +19,6 @@ name: publish
 
 on:
   push:
-    branches:
-      - main   # temporary: proves registration; the publish steps are tag-guarded
     tags:
       - "v*"
   workflow_dispatch:
