@@ -16,6 +16,9 @@ import { DEFAULTS } from "../src/loop.ts";
 const read = (relative: string): string => readFileSync(new URL(relative, import.meta.url), "utf8");
 
 const README = read("../README.md");
+const BEHAVIOUR = read("../docs/behaviour.md");
+/** What a reader can see: the README, or the behaviour page it links to. */
+const USER_FACING = `${README}\n${BEHAVIOUR}`;
 const AGENTS = read("../AGENTS.md");
 const ALIGNMENT = read("../docs/pi-api-alignment.md");
 const CHANGELOG = read("../CHANGELOG.md");
@@ -107,8 +110,8 @@ test("every stop reason the code can report appears in the README table", () => 
 	fragments.delete("");
 	assert.ok(fragments.size >= 8, `expected several reason fragments, found ${fragments.size}`);
 
-	const missing = [...fragments].filter((fragment) => !README.includes(fragment));
-	assert.deepEqual(missing, [], `README reason table is missing: ${missing.join(" | ")}`);
+	const missing = [...fragments].filter((fragment) => !USER_FACING.includes(fragment));
+	assert.deepEqual(missing, [], `reason strings are undocumented: ${missing.join(" | ")}`);
 });
 
 test("the README configuration table states every default, not just the numbers", () => {
@@ -129,7 +132,7 @@ test("clamp ceilings in the README match the ones the code enforces, per key", (
 	assert.equal(clamps.length, 3, `expected three clamp ceilings, found ${clamps.length}`);
 	for (const { key, ceiling } of clamps) {
 		assert.ok(
-			README.includes(`\`${key}\` ≤ ${ceiling}`),
+			USER_FACING.includes(`\`${key}\` ≤ ${ceiling}`),
 			`README does not state \`${key}\` ≤ ${ceiling}`,
 		);
 	}

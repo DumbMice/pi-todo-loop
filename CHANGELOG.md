@@ -31,6 +31,9 @@ Initial release.
 - Kill switch: `~/.pi/agent/todo-loop-off` or `.pi/todo-loop-off`.
 - Config at `~/.pi/agent/todo-loop.json`; invalid values fall back to defaults, and numbers are
   clamped (`maxRounds` ≤ 1000, `maxStrikes` ≤ 100, `maxInjectedTasks` ≤ 50).
+- The documentation is split: `README.md` is a user-facing page (what it does, quick start, one example,
+  configuration, commands, troubleshooting, uninstall), and `docs/behaviour.md` holds the mechanics it
+  used to inline — marker lifetime, role alternation, counter semantics, reason strings, scope and cost.
 - Tests, runnable with no dependencies: decision policy, state reader, injection renderer, config
   loader, the pi-facing hooks through a stub `pi`, a captured real branch, and documentation tests
   that pin the tested-version table, the invariant map, the reason table, the configuration table and

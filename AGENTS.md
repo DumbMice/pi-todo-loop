@@ -21,7 +21,8 @@ test/fixture.test.ts      the same hooks over real captured lines (test/fixtures
 test/docs.test.ts         pins the version table, invariant map, reason table, config table, links
 scripts/check-pack.mjs    asserts the published tarball contains what package.json promises
 docs/pi-api-alignment.md  every deliberate workaround over pi's documented extension API
-README.md                 user-facing documentation
+docs/behaviour.md         how it behaves, precisely: markers, counters, the block, cost
+README.md                 user-facing documentation (what it is, install, config, troubleshooting)
 AGENTS.md                 this file
 CONTRIBUTING.md           four-line pointer to this file (GitHub convention)
 CHANGELOG.md              Keep a Changelog format, released and unreleased entries
@@ -235,8 +236,12 @@ grep -c 'todo-loop:continue' ~/.pi/agent/sessions/<project>/*.jsonl   # one per 
 
 ## Documentation conventions
 
-- `README.md` is for users of the extension: when to use it, install, configuration, commands,
-  observable behaviour, troubleshooting. No implementation inventories, no CI or release steps.
+- `README.md` is for users of the extension, read top-down on npm: what it does, quick start, one
+  example, when it helps and when it does not, configuration, commands, "is it working", troubleshooting,
+  uninstall, requirements. No implementation inventories, no counter mechanics, no CI or release steps.
+- `docs/behaviour.md` is the depth the README links to: marker lifetime, role alternation, the injected
+  block, counter semantics, reason strings, where the list is read from, scope, cost. Technical, but
+  written for a user debugging behaviour rather than a contributor.
 - `docs/pi-api-alignment.md` is the register of deliberate workarounds over pi's documented extension
   API, and the record of which versions those were established against. Add an item when behaviour
   deviates; items with no output signal are marked _(silent)_. The tested-version table at the top,
