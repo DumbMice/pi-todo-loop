@@ -1,6 +1,6 @@
 # Working on this repository
 
-Instructions for anyone — human or coding agent — changing `pi-todo-loop`. For what the extension
+Instructions for anyone — human or coding agent — changing `@dumbmice/pi-todo-loop`. For what the extension
 does and how to install it, read [README.md](README.md).
 
 ## Layout

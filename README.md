@@ -1,4 +1,4 @@
-# pi-todo-loop
+# @dumbmice/pi-todo-loop
 
 [![npm version](https://img.shields.io/npm/v/@dumbmice/pi-todo-loop)](https://www.npmjs.com/package/@dumbmice/pi-todo-loop)
 [![license](https://img.shields.io/npm/l/@dumbmice/pi-todo-loop)](https://github.com/DumbMice/pi-todo-loop/blob/main/LICENSE)
