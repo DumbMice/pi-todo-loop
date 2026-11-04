@@ -1,5 +1,5 @@
 /**
- * pi-todo-loop — continuation driven by an rpiv-todo list.
+ * @dumbmice/pi-todo-loop — continuation driven by an rpiv-todo list.
  *
  * Pairs with `@juicesharp/rpiv-todo`; does not import or patch it. Three hooks:
  *

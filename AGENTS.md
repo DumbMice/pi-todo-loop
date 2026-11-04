@@ -304,10 +304,10 @@ a trusted publisher configured from a workflow (npm also offers a *pending publi
 
 ```bash
 npm login                 # or refresh the token in ~/.npmrc
-npm publish --access public
+npm publish --access public        # scoped: --access public is required
 ```
 
-Then **configure the publisher once** at <https://www.npmjs.com/package/pi-todo-loop/access>:
+Then **configure the publisher once** at <https://www.npmjs.com/package/@dumbmice/pi-todo-loop/access>:
 
 | Field | Value |
 |---|---|
@@ -316,6 +316,14 @@ Then **configure the publisher once** at <https://www.npmjs.com/package/pi-todo-
 | Repository | `pi-todo-loop` |
 | Workflow filename | `publish.yml` |
 | Environment | leave empty |
+
+Or from the CLI (npm >= 11.15):
+
+```bash
+npx npm@latest trust github @dumbmice/pi-todo-loop \
+  --file publish.yml --repo DumbMice/pi-todo-loop --allow-publish
+npx npm@latest trust list @dumbmice/pi-todo-loop
+```
 
 The workflow must keep that filename: npm pins the publisher to it. It skips the publish when the tag's
 version already exists on npm, so the manual first release and a re-run of the same tag both work; the

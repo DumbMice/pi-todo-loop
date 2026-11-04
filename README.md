@@ -1,8 +1,8 @@
 # pi-todo-loop
 
-[![npm version](https://img.shields.io/npm/v/pi-todo-loop)](https://www.npmjs.com/package/pi-todo-loop)
-[![license](https://img.shields.io/npm/l/pi-todo-loop)](https://github.com/DumbMice/pi-todo-loop/blob/main/LICENSE)
-[![node](https://img.shields.io/node/v/pi-todo-loop)](https://github.com/DumbMice/pi-todo-loop/blob/main/package.json)
+[![npm version](https://img.shields.io/npm/v/@dumbmice/pi-todo-loop)](https://www.npmjs.com/package/@dumbmice/pi-todo-loop)
+[![license](https://img.shields.io/npm/l/@dumbmice/pi-todo-loop)](https://github.com/DumbMice/pi-todo-loop/blob/main/LICENSE)
+[![node](https://img.shields.io/node/v/@dumbmice/pi-todo-loop)](https://github.com/DumbMice/pi-todo-loop/blob/main/package.json)
 [![tests](https://github.com/DumbMice/pi-todo-loop/actions/workflows/test.yml/badge.svg)](https://github.com/DumbMice/pi-todo-loop/actions/workflows/test.yml)
 
 Keeps the [pi coding agent](https://pi.dev) working while its todo list still has open tasks.
@@ -16,7 +16,7 @@ clear the list.
 
 ```bash
 pi install npm:@juicesharp/rpiv-todo    # the list this reads (skip if installed)
-pi install npm:pi-todo-loop
+pi install npm:@dumbmice/pi-todo-loop
 ```
 
 Then start a session and ask for something with several steps:
@@ -145,7 +145,7 @@ grep -c 'todo-loop:continue' ~/.pi/agent/sessions/<project>/*.jsonl
 ## Uninstall
 
 ```bash
-pi remove npm:pi-todo-loop
+pi remove npm:@dumbmice/pi-todo-loop
 rm -f ~/.pi/agent/todo-loop.json
 rm -f ~/.pi/agent/todo-loop-off .pi/todo-loop-off
 ```

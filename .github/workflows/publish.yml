@@ -2,7 +2,7 @@ name: publish
 
 # Publishes to npm when a version tag is pushed, using npm Trusted Publishing.
 #
-# Configure the publisher once at https://www.npmjs.com/package/pi-todo-loop/access
+# Configure the publisher once at https://www.npmjs.com/package/@dumbmice/pi-todo-loop/access
 # (or "Pending publisher" before the first release):
 #   Provider: GitHub Actions
 #   Organization or user: DumbMice
@@ -62,7 +62,8 @@ jobs:
         run: |
           npm pack --pack-destination /tmp
           mkdir -p /tmp/packed
-          tar xzf /tmp/pi-todo-loop-*.tgz -C /tmp/packed
+          tarball="$(npm pack --pack-destination /tmp --json | node -e 'let b="";process.stdin.on("data",(c)=>b+=c).on("end",()=>console.log(JSON.parse(b)[0].filename))')"
+          tar xzf "/tmp/$tarball" -C /tmp/packed
           test -f /tmp/packed/package/src/index.ts
           node -e '
             const p = require("/tmp/packed/package/package.json");
@@ -79,8 +80,8 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           version="$(node -p "require('./package.json').version")"
-          if npm view "pi-todo-loop@$version" version >/dev/null 2>&1; then
-            echo "::notice::pi-todo-loop@$version is already on npm — skipping publish"
+          if npm view "@dumbmice/pi-todo-loop@$version" version >/dev/null 2>&1; then
+            echo "::notice::@dumbmice/pi-todo-loop@$version is already on npm — skipping publish"
             exit 0
           fi
           npm publish --access public
