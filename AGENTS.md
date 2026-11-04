@@ -305,7 +305,7 @@ attestation automatically because the repository is public.
 The workflow must keep that filename: npm pins the publisher to it. It runs `npm ci`, the suite, the
 typecheck and `npm run pack:check`, refuses to publish when the tag and `package.json` disagree, packs
 the tarball and asserts the packed manifest still declares `pi.extensions`, then publishes and creates
-the GitHub release from the matching `CHANGELOG.md` section. A manual `workflow_dispatch` defaults to
+the GitHub release from the matching `CHANGELOG.md` section. It has no inputs: a manual `workflow_dispatch` is a
 `dry_run` — it verifies everything and publishes nothing.
 
 Cutting a release:

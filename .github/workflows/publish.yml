@@ -11,27 +11,21 @@ name: publish
 #   Environment: (leave empty)
 #
 # With that in place this workflow needs no NPM_TOKEN: it exchanges the job's OIDC
-# token for a short-lived publish credential and npm attaches a provenance
+# token for a short-lived publish credential, and npm attaches a provenance
 # attestation automatically for a public repository.
+#
+# A manual "Run workflow" is a verification pass: it runs every check and packs the
+# tarball, but publishes nothing. Only a pushed v* tag publishes.
 
 on:
   push:
     tags:
       - "v*"
   workflow_dispatch:
-    inputs:
-      dry_run:
-        description: "Pack and verify without publishing"
-        type: boolean
-        default: true
 
 permissions:
   contents: write # create the GitHub release
   id-token: write # trusted publishing (OIDC)
-
-concurrency:
-  group: publish-${{ github.ref }}
-  cancel-in-progress: false
 
 jobs:
   publish:
@@ -56,7 +50,7 @@ jobs:
       - run: npm run pack:check
 
       - name: Check the tag matches package.json
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.event_name == 'push'
         run: |
           tag="${GITHUB_REF_NAME#v}"
           version="$(node -p "require('./package.json').version")"
@@ -65,32 +59,39 @@ jobs:
             exit 1
           fi
 
-      - name: Pack and install what would be published
+      - name: Pack and verify what would be published
         run: |
           npm pack --pack-destination /tmp
-          mkdir -p /tmp/packed && tar xzf /tmp/pi-todo-loop-*.tgz -C /tmp/packed
+          mkdir -p /tmp/packed
+          tar xzf /tmp/pi-todo-loop-*.tgz -C /tmp/packed
           test -f /tmp/packed/package/src/index.ts
           node -e '
             const p = require("/tmp/packed/package/package.json");
-            if (!p.pi?.extensions?.includes("./src/index.ts")) {
-              console.error("packed manifest lost pi.extensions");
-              process.exit(1);
-            }
+            if (!p.pi) throw new Error("packed manifest lost pi");
+            if (!p.pi.extensions || !p.pi.extensions.includes("./src/index.ts"))
+              throw new Error("packed manifest lost pi.extensions");
+            console.log("packed manifest ok:", p.name, p.version);
           '
 
       - name: Publish
-        if: startsWith(github.ref, 'refs/tags/') && inputs.dry_run != true
+        if: github.event_name == 'push'
         run: npm publish --access public
 
       - name: Create the GitHub release
-        if: startsWith(github.ref, 'refs/tags/') && inputs.dry_run != true
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           version="$(node -p "require('./package.json').version")"
-          notes="$(awk -v v="$version" '
-            $0 ~ "^## \\[" v "\\]" { flag = 1; next }
-            flag && /^## \[/ { exit }
-            flag { print }
-          ' CHANGELOG.md)"
-          gh release create "v$version" --title "v$version" --notes "${notes:-See CHANGELOG.md}" --verify-tag
+          node -e '
+            const fs = require("node:fs");
+            const version = require("./package.json").version;
+            const lines = fs.readFileSync("CHANGELOG.md", "utf8").split("\n");
+            const start = lines.findIndex((l) => l.startsWith(`## [${version}]`));
+            if (start === -1) throw new Error(`no CHANGELOG section for ${version}`);
+            const rest = lines.slice(start + 1);
+            const end = rest.findIndex((l) => l.startsWith("## ["));
+            const notes = (end === -1 ? rest : rest.slice(0, end)).join("\n").trim();
+            fs.writeFileSync("/tmp/release-notes.md", notes || `See CHANGELOG.md`);
+          '
+          gh release create "v$version" --title "v$version" --notes-file /tmp/release-notes.md --verify-tag
