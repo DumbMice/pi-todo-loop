@@ -142,9 +142,12 @@ grep -c 'todo-loop:continue' ~/.pi/agent/sessions/<project>/*.jsonl   # one per 
 - `README.md` is for users of the extension: when to use it, install, configuration, commands,
   observable behaviour, troubleshooting. No implementation inventories, no CI or release steps.
 - `docs/pi-api-alignment.md` is the register of deliberate workarounds over pi's documented extension
-  API, verified against a stated pi version. Add an item when behaviour deviates; items with no output
-  signal are marked _(silent)_. `PI_API_SNAPSHOT` appears in the `src/index.ts` header and at the top
-  of the register — keep them in step.
+  API, and the record of which versions those were established against. Add an item when behaviour
+  deviates; items with no output signal are marked _(silent)_. The tested-version table at the top,
+  `PI_API_SNAPSHOT` in `src/index.ts`, and the README *Tested against* table move together in the
+  same commit as the change that depends on them. Note that `@juicesharp/rpiv-todo` is a *shape*
+  dependency only (register item 11): it is never imported, so it has no `package.json` entry, and
+  its tested version lives in that table rather than in a constant.
 - `CHANGELOG.md` follows Keep a Changelog. Put unreleased work under `[Unreleased]` with
   Added/Changed/Fixed headings; add the version heading when the release is tagged.
 - `AGENTS.md` (this file) holds contributor, architecture and release material.

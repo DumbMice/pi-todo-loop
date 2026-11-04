@@ -1,7 +1,16 @@
 # pi extension API alignment
 
-How this extension's use of pi's extension API relates to the documented contract, verified against
-**pi 1.5.0** (`PI_API_SNAPSHOT` in `src/index.ts`).
+How this extension's use of pi's extension API relates to the documented contract, and which exact
+versions that was established against.
+
+| Component | Tested version | Recorded in |
+|---|---|---|
+| `@earendil-works/pi-coding-agent` | **1.5.0** | `PI_API_SNAPSHOT` in `src/index.ts` |
+| `@juicesharp/rpiv-todo` | **2.15.0** | this file (item 11) |
+| Node | 22.23.2 | README *Tested against* |
+
+Last verified **2026-11-04**. Bump a row here, its constant where one exists, and the README table in
+the same commit as the change that depends on it.
 
 The contract is followed where it is documented: `turn_end` boundary proposals, draft entry types,
 `context` hook ownership of the message list, `display: false`, and `registerCommand`. Nothing here
@@ -43,3 +52,19 @@ full. Items that produce no signal in the transcript are marked _(silent)_.
     dependency of a package that is meant to have none. Contexts this file reads are typed
     structurally (`SessionContext`) rather than nominally. The trade-off: the compiler does not check
     event payload shapes, so `npm test` and a real `pi -e` run carry that weight.
+11. **A declared dependency on rpiv-todo's *persisted shape*, which is not its public API.** This
+    extension imports nothing from `@juicesharp/rpiv-todo` and therefore declares no dependency on it,
+    but it reads two representations the package writes: `custom` entries with
+    `customType: "rpiv-todo-state"`, and `todo` toolResult `details.tasks`. The package's own issues
+    describe `details` as extension-specific session data, so a change to that shape is not
+    guaranteed to appear in its semver. Consequences, accepted deliberately:
+    - the reader is written defensively (both shapes tried, `subject`/`content` accepted, malformed
+      entries treated as "no list") so a drift degrades to inert rather than throwing in a boundary;
+    - the tested version is recorded above, not enforced;
+    - the parser is duplicated rather than imported. `@juicesharp/rpiv-todo/state/replay.ts` does
+      export `replayFromBranch` and `isTaskDetails`, but a peer import would resolve to nothing under
+      pi's `--omit=peer` installs, and a declared dependency would make pi install a second nested
+      copy of the extension — which registers a duplicate `todo` tool.
+    - failure is currently indistinguishable from "the agent never called `todo`": both report
+      `stopped: no list` in `/todoloop`. Making those cases distinguishable is the next diagnostic
+      improvement, not a compatibility fix.

@@ -59,9 +59,20 @@ Requirements:
 
 | | |
 |---|---|
-| pi | 1.5.0 verified; needs the `turn_end` boundary with `continue` and draft `entries` |
-| rpiv-todo | 2.15.0 verified; any version that persists `rpiv-todo-state` custom entries or `todo` toolResult `details.tasks` |
-| Node | >= 22.6 for the test runner; the extension has no runtime dependencies |
+| pi | `>= 1.5.0`; needs the `turn_end` boundary with `continue` and draft `entries` |
+| rpiv-todo | `>= 2.15.0`; any version that persists `rpiv-todo-state` custom entries or `todo` toolResult `details.tasks` |
+| Node | `>= 22.6` for the test runner; the extension has no runtime dependencies |
+
+Tested against, not merely required:
+
+| Component | Version | What was verified |
+|---|---|---|
+| `@earendil-works/pi-coding-agent` | **1.5.0** | boundary `continue` + `entries`, `display: false`, marker stripping through the `context` hook, `/todoloop` registration, resume after a continuation |
+| `@juicesharp/rpiv-todo` | **2.15.0** | `rpiv-todo-state` custom entry shape, `todo` toolResult `details.tasks`, branch replay after `/reload` and compaction |
+| Node | 22.23.2 | `npm test`, `npm run typecheck`, `pi -e` smoke runs |
+
+Last verified **2026-11-04**. Both dependencies are recorded with their tested version in
+[docs/pi-api-alignment.md](docs/pi-api-alignment.md), which is where the next bump belongs.
 
 **Install one copy only.** A development checkout in `~/.pi/agent/extensions/todo-loop/` alongside the
 npm package makes both register a `turn_end` handler, and each will request its own continuation.
