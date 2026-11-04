@@ -2,83 +2,17 @@
  * The pi-facing half: the two hooks and the command, driven through a stub
  * `pi` object. No model, no network, no real session.
  *
- * These cases exist because the tail invariant (marker stripped ⇒ block
- * appended, marker kept otherwise) cannot be checked by the pure-logic tests.
+ * These cases exist because the request shapes (marker retention, tail
+ * replacement) cannot be checked by the pure-logic tests.
  */
 
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import todoLoop, { MARKER_TYPE } from "../src/index.ts";
+import { MARKER_TYPE } from "../src/index.ts";
 import { INJECT_TAG } from "../src/inject.ts";
-
-type Handler = (event: any, ctx: any) => Promise<any> | any;
-
-interface Harness {
-	handlers: Record<string, Handler[]>;
-	commands: Record<string, { handler: Handler }>;
-	notices: string[];
-	ctx: any;
-	pi: any;
-	options: { configPath: string; killSwitchGlobal: string; killSwitchLocal: string };
-}
-
-const task = (id: number, status: string, subject = `task ${id}`) => ({ id, status, subject });
-
-function branchWith(tasks: unknown[]): unknown[] {
-	return [
-		{ type: "message", id: "user-1", message: { role: "user", content: "go" } },
-		{
-			type: "custom",
-			customType: "rpiv-todo-state",
-			id: "todo-1",
-			data: { tasks },
-		},
-	];
-}
-
-function harness(branch: unknown[], config?: Record<string, unknown>): Harness {
-	const dir = mkdtempSync(join(tmpdir(), "todo-loop-test-"));
-	const configPath = join(dir, "todo-loop.json");
-	if (config !== undefined) writeFileSync(configPath, JSON.stringify(config));
-
-	const notices: string[] = [];
-	const handlers: Record<string, Handler[]> = {};
-	const commands: Record<string, { handler: Handler }> = {};
-
-	const pi = {
-		on(name: string, handler: Handler) {
-			(handlers[name] ??= []).push(handler);
-		},
-		registerCommand(name: string, definition: { handler: Handler }) {
-			commands[name] = definition;
-		},
-	};
-
-	const ctx = {
-		cwd: dir,
-		sessionManager: { getBranch: () => branch },
-		ui: { notify: (message: string) => notices.push(message) },
-	};
-
-	const options = {
-		configPath,
-		killSwitchGlobal: join(dir, "off-global"),
-		killSwitchLocal: ".pi/off-local",
-	};
-
-	todoLoop(pi, options);
-	return { handlers, commands, notices, ctx, pi, options };
-}
-
-async function run(harness: Harness, event: string, payload: any): Promise<any> {
-	const handlers = harness.handlers[event] ?? [];
-	let result: any;
-	for (const handler of handlers) result = await handler(payload, harness.ctx);
-	return result;
-}
+import { branchWith, harness, marker, run, task } from "./helpers/harness.ts";
 
 test("context strips the marker and appends the state block when tasks are open", async () => {
 	const h = harness(branchWith([task(1, "pending"), task(2, "in_progress")]));
@@ -98,8 +32,6 @@ test("context strips the marker and appends the state block when tasks are open"
 	assert.match(text, new RegExp(`<${INJECT_TAG}>`));
 	assert.match(text, /2 tracked task\(s\) are still open/);
 });
-
-const marker = () => ({ role: "user", customType: MARKER_TYPE, content: "<todo_loop_continue/>" });
 
 test("history markers are left alone when nothing is injected", async () => {
 	const h = harness(branchWith([task(1, "completed")]));

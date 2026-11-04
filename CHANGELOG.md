@@ -35,6 +35,10 @@ Initial release.
   loader, the pi-facing hooks through a stub `pi`, a captured real branch, and documentation tests
   that pin the tested-version table, the invariant map, the reason table, the configuration table and
   README link targets.
+- `test/state-machine.test.ts`: the counters as a table of event sequences in pi's own vocabulary
+  (`settle`, `tool`, `edit`, `human`, pause/resume/reset, error/abort, kill switch), asserting
+  continuations, markers, rounds, strikes, the `/todoloop` reason and header at once. Re-introducing any
+  of the three historical budget defects fails it.
 - `scripts/check-pack.mjs` as `npm run pack:check`: asserts the published tarball really contains the
   entry point, sources, docs, licence and `tsconfig.json` (`npm pack --dry-run` exits 0 otherwise).
 

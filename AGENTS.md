@@ -15,6 +15,8 @@ test/loop.test.ts         decision policy: caps, strikes, anchor reset, error ou
 test/state.test.ts        branch reader: both shapes, recency preference, malformed input
 test/inject.test.ts       renderer and config coercion
 test/index.test.ts        the pi-facing half through a stub `pi`: tail handling, kill switch, caps
+test/state-machine.test.ts the counters as a table of event sequences (the suite to extend)
+test/helpers/harness.ts   the stub `pi`, mutable branch and scripted context those two share
 test/fixture.test.ts      the same hooks over real captured lines (test/fixtures/branch.jsonl)
 test/docs.test.ts         pins the version table, invariant map, reason table, config table, links
 scripts/check-pack.mjs    asserts the published tarball contains what package.json promises
@@ -178,7 +180,15 @@ Ranked by how easily a small change breaks them.
 ## Tests
 
 `test/*.test.ts` uses `node:test` and imports the source directly; nothing needs a model, a key or a
-network. `test/index.test.ts` fakes pi's surface (an object with `on` and `registerCommand`, plus a
+network. `test/state-machine.test.ts` is the one to extend when you touch the counters: it replays sequences in
+the vocabulary pi actually produces — `settle` (a response with no tool calls), `tool` (a response that
+ended in tool calls), `edit` (the list changed), `human` (a new message), plus pause/resume/reset/
+error/abort/kill-switch — and asserts the whole outcome at once: continuations, markers, rounds,
+strikes, the reason `/todoloop` prints and its header. Every release-blocking defect in this repository's
+history lived in that interaction, so a new rule belongs there as a row in `SCENARIOS` before it belongs
+in prose.
+
+`test/index.test.ts` fakes pi's surface (an object with `on` and `registerCommand`, plus a
 `SessionContext` over a hand-built branch) and asserts the hook *return values*; it is the only place
 the tail coupling is checked. `test/docs.test.ts` reads the repository's own Markdown, which is how the
 tested-version table is enforced. When fixing a bug, add the failing case first. Run `npm test` before every commit; CI repeats
