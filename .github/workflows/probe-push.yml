@@ -1,0 +1,10 @@
+name: probe-push
+on:
+  push:
+    branches:
+      - main
+jobs:
+  p:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo push
