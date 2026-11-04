@@ -21,6 +21,8 @@ export interface Task {
 	subject: string;
 	status: string;
 	activeForm?: string;
+	/** Internal: the id was derived from the array position, not supplied by the payload. */
+	syntheticId?: true;
 }
 
 export interface Snapshot {
@@ -45,27 +47,41 @@ const CLOSED_STATUSES = new Set(["completed", "deleted"]);
  * a single bad field cannot silently shrink the list toward "clear".
  */
 export function normalizeTask(value: unknown, index = 0): Task | undefined {
-	if (typeof value !== "object" || value === null) return undefined;
+	// An array is a wrapper the reader does not understand, not a task: keeping it
+	// would produce a phantom "open" task that never lets the loop report the list
+	// clear.
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
 	const record = value as Record<string, unknown>;
-	const id = typeof record.id === "number" ? record.id : Number(record.id);
+
+	// Only a string can need conversion — `Number(...)` on anything else is the only
+	// place this file could throw.
+	const numeric = typeof record.id === "number" ? record.id : typeof record.id === "string" ? Number(record.id) : Number.NaN;
+	const usableId = typeof record.id === "number" || (typeof record.id === "string" && record.id.trim() !== "");
+	const id = usableId && Number.isInteger(numeric) && numeric >= 0 ? numeric : index;
+
 	const subject =
 		typeof record.subject === "string"
 			? record.subject
 			: typeof record.content === "string"
 				? record.content
 				: "";
-	// `Number(null)`, `Number("")` and `Number([])` are all 0, which would collapse
-	// every unusable id onto one task; only strings and numbers are ids.
-	const usableId =
-		(typeof record.id === "string" && record.id.trim() !== "") || typeof record.id === "number";
-	return {
-		id: usableId && Number.isInteger(id) && id >= 0 ? id : index,
+
+	// Fail-open (see isOpen) makes status matching load-bearing, so normalise it:
+	// "Completed " from another tool must not read as open forever.
+	const status = typeof record.status === "string" ? record.status.trim().toLowerCase() : "pending";
+
+	// A record with neither a label nor a status is not a task; keeping it would make
+	// the list permanently "open" on a phantom entry.
+	if (subject === "" && typeof record.status !== "string") return undefined;
+
+	const task: Task = {
+		id,
 		subject,
-		// Fail-open (see isOpen) makes status matching load-bearing, so normalise it:
-		// "Completed " from another tool must not read as open forever.
-		status: typeof record.status === "string" ? record.status.trim().toLowerCase() : "pending",
+		status,
 		...(typeof record.activeForm === "string" ? { activeForm: record.activeForm } : {}),
 	};
+	if (!(usableId && Number.isInteger(numeric) && numeric >= 0)) task.syntheticId = true;
+	return task;
 }
 
 /**
@@ -78,8 +94,37 @@ export function isOpen(task: Task): boolean {
 	return !CLOSED_STATUSES.has(task.status);
 }
 
+/**
+ * Give every task a distinct id without ever renumbering one the payload supplied.
+ *
+ * A real id is what the model must use to update the task, so it is reserved first;
+ * only synthetic ids (derived from the array position) and duplicates of a real id are
+ * moved to a free number above the reserved set.
+ */
+function withUniqueIds(tasks: readonly Task[]): Task[] {
+	const reserved = new Set<number>();
+	for (const task of tasks) if (task.syntheticId !== true) reserved.add(task.id);
+
+	const used = new Set<number>();
+	let next = 1;
+	const freeId = (): number => {
+		while (reserved.has(next) || used.has(next)) next += 1;
+		used.add(next);
+		return next;
+	};
+
+	return tasks.map((task) => {
+		if (task.syntheticId !== true && !used.has(task.id)) {
+			used.add(task.id);
+			return task;
+		}
+		const { syntheticId: _synthetic, ...rest } = task;
+		return { ...rest, id: freeId() };
+	});
+}
+
 export function snapshotFrom(tasks: readonly Task[], anchor = ""): Snapshot {
-	const kept = tasks.filter((task) => task.status !== "deleted");
+	const kept = withUniqueIds(tasks.filter((task) => task.status !== "deleted"));
 	return {
 		tasks: [...kept],
 		open: kept.filter(isOpen),

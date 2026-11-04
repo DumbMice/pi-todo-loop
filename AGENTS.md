@@ -123,13 +123,16 @@ introduces an edge.
 | a stop keeps the counters for the anchor, and a new message clears them | `a stop keeps the counters, so a cap stays shut for the same anchor`, `a new human message after a stop starts a fresh budget`, `the round cap is sticky for one human message` |
 | the newest custom entry wins over older ones | `reads the newest rpiv-todo custom entry` |
 | the toolResult fallback works and loses to the custom entry | `falls back to todo toolResult details`, `prefers the custom entry over the toolResult fallback` |
-| the anchor is the newest human message: not assistant, toolResult, or our own marker | `anchor is the newest human message id, ignoring assistant and toolResult`, `our own projected marker never becomes the anchor`, `a user message without an id anchors on its position` |
+| the anchor is the newest `role:"user"` message without a `customType` — not assistant, toolResult, our own marker, or another extension's custom user message | `anchor is the newest human message id, ignoring assistant and toolResult`, `our own projected marker never becomes the anchor`, `a user message without an id anchors on its position` |
 | `deleted` tasks leave list, open set and signature | `deleted tasks are excluded from tasks, open and signature` |
 | malformed entries degrade to the empty snapshot | `malformed or missing state degrades to the empty snapshot` |
 | config defaults survive garbage; fields are coerced | `missing or malformed config falls back to defaults`, `valid fields override, invalid ones are ignored` |
 | the injection shows open tasks only, bounded, `activeForm` for in_progress | `injection lists open tasks with their status`, `injection is bounded and reports the overflow`, `injection uses activeForm only for in_progress`, `injection tolerates an empty subject` |
 | a status change moves the signature | `signature changes when a status changes` |
+| a record with neither a label nor a status is not a task, and arrays are not tasks | `a record with neither a label nor a status is not a task`, `an array element is not a task` |
+| only a `todo` tool's own shapes are read | `a foreign custom entry or toolResult carrying tasks is ignored` |
 | an unknown status counts as open, and status text is normalised | `an unknown status counts as open, not as done`, `status is normalised, so a differently-cased value still closes` |
+| ids are made distinct, and a real id is never renumbered | `a positional id never shadows a real one`, `duplicate ids in the source are made distinct`, `a synthetic id never renumbers a real one, even when it comes first` |
 | a task without a usable id falls back to its position | `a task without a usable id falls back to its position, not to being dropped`, `a null or empty id falls back to the position instead of colliding on 0` |
 | the newer shape wins, in either order | `the newer of a custom entry and a toolResult wins, in either order` |
 | the block is appended only when injecting, replacing a tail marker | `context strips the marker and appends the state block when tasks are open`, `a tail marker is replaced by the block, never followed by it`, `the block is appended when the tail is an assistant turn`, `the request never ends with two user-role messages` |
@@ -173,10 +176,14 @@ Ranked by how easily a small change breaks them.
    indistinguishable, freezing the per-message reset. A branch switch that lands on a sibling branch
    with the same newest user entry keeps the spent budget — deliberate, so a fork cannot refill it.
 4. **State shape drift in the todo tool.** Both shapes are read defensively; keep `normalizeTask`
-   tolerant of renamed fields (`content` vs `subject`) and of unusable ids.
-5. **Branch walking.** The reader breaks early on the newest *custom* entry plus the anchor, and keeps
-   walking to find a newer toolResult if it has not seen one. An early return on the list alone can pick
-   up a stale anchor and reset the budget mid-run.
+   tolerant of renamed fields (`content` vs `subject`) and of unusable ids, and keep `withUniqueIds` in
+   `snapshotFrom` — it moves only synthetic or colliding ids, never one the payload supplied, because
+   that number is what the model must use to update the task.
+5. **Branch walking.** The reader stops once it holds a list in *either* shape and the anchor. It walks
+   newest-first, so a toolResult newer than the custom entry is already in hand; the extra walking is to
+   reach the anchor, which is older than the newest list entry. Breaking out on the list alone leaves
+   `anchor` empty, which makes every turn look like a new human message and re-arms the full budget each
+   time.
 
 ## Tests
 
@@ -221,7 +228,7 @@ grep -c 'todo-loop:continue' ~/.pi/agent/sessions/<project>/*.jsonl   # one per 
   `PI_API_SNAPSHOT` in `src/index.ts`, and the README *Tested against* table move together in the
   same commit as the change that depends on them, and `test/docs.test.ts` fails if the constant, the
   date or the tested rpiv-todo version goes missing from either file. Note that `@juicesharp/rpiv-todo`
-  is a *shape* dependency only (register item 11): it is never imported, so it has no `package.json`
+  is a *shape* dependency only (register item 12): it is never imported, so it has no `package.json`
   entry, and its tested version lives in that table rather than in a constant.
 - `CHANGELOG.md` follows Keep a Changelog. Put unreleased work under `[Unreleased]` with
   Added/Changed/Fixed headings; add the version heading when the release is tagged. `test/docs.test.ts`

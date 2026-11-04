@@ -109,8 +109,11 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 
 		const original = event.messages as unknown[];
 		const config = loadConfig(configPath);
+		// No injection configured: nothing below needs the branch at all.
+		if (!config.injectState) return undefined;
+
 		const snapshot = readSnapshot(branchEntries(ctx));
-		const injecting = config.injectState && snapshot.open.length > 0;
+		const injecting = snapshot.open.length > 0;
 		if (!injecting) return undefined;
 
 		// The marker is persisted between assistant turns, so it is what keeps the
@@ -272,6 +275,7 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 					`todo-loop ${mode}`,
 					`rounds ${state.rounds}/${config.maxRounds} · strikes ${state.strikes}/${config.maxStrikes}`,
 					`open ${snapshot.open.length}/${snapshot.tasks.length} tracked · inject ${config.injectState ? "on" : "off"}`,
+					`anchor ${snapshot.anchor || "(none)"}`,
 					`last: ${state.reason}`,
 					`config ${configPath}`,
 				].join("\n"),

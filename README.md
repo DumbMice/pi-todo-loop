@@ -104,7 +104,7 @@ Requirements:
 | | |
 |---|---|
 | pi | tested on **1.5.0**; needs the `turn_end` boundary with `continue` and draft `entries`. Older versions are unverified |
-| todo tool | any tool named `todo` that persists `rpiv-todo-state` custom entries or `todo` toolResult `details.tasks`; tested with `@juicesharp/rpiv-todo` **2.15.0**. Not declared in the manifest on purpose — see [docs/pi-api-alignment.md](docs/pi-api-alignment.md) item 11 |
+| todo tool | any tool named `todo` that persists `rpiv-todo-state` custom entries or `todo` toolResult `details.tasks`; tested with `@juicesharp/rpiv-todo` **2.15.0**. Not declared in the manifest on purpose — see [docs/pi-api-alignment.md](docs/pi-api-alignment.md) item 12 |
 | Node | `engines` declares `>= 22.6` — the test runner needs `--experimental-strip-types`; pi loads the TypeScript itself, so an older Node only warns. No runtime dependencies |
 
 Tested against, not merely required:
@@ -224,7 +224,9 @@ touch .pi/todo-loop-off             # this project
   no marker, no round. A round is spent only on a turn that would otherwise have ended the run.
 - **One budget per human message.** Up to `maxRounds` continuations (12 by default) run before the loop
   stops. The budget resets when the newest human message changes — not when the agent continues — and
-  starts empty in a new process (see the memory note below).
+  starts empty in a new process (see the memory note below). A user-role message that carries a
+  `customType` (this extension's marker, or another extension's hidden message) is skipped, so it does
+  not reset the budget; `/todoloop` prints the anchor it is using.
 - **A stop keeps the budget shut.** Hitting the cap or the strike limit does not clear the counters —
   another extension's continuation, or a provider retry under the same user message, will not re-arm 12
   more rounds. A queued human message is a new anchor, so it resets the budget the ordinary way.

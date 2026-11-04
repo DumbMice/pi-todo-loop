@@ -101,7 +101,7 @@ test("a task without a usable id falls back to its position, not to being droppe
 	const snapshot = readSnapshot([customEntry([{ subject: "no id" }, { id: "x", subject: "bad" }])]);
 	assert.deepEqual(
 		snapshot.tasks.map((t) => t.id),
-		[0, 1],
+		[1, 2],
 		"dropping it would shrink the list toward clear",
 	);
 });
@@ -162,7 +162,8 @@ test("a null or empty id falls back to the position instead of colliding on 0", 
 	]);
 	assert.deepEqual(
 		snapshot.tasks.map((t) => t.id),
-		[0, 1, 7],
+		[1, 2, 7],
+		"the real id 7 is never renumbered",
 	);
 });
 
@@ -177,4 +178,94 @@ test("our own projected marker never becomes the anchor", () => {
 test("a user message without an id anchors on its position", () => {
 	const branch = [{ type: "message", message: { role: "user", content: "go" } }];
 	assert.equal(readSnapshot(branch).anchor, "#0");
+});
+
+test("a positional id never shadows a real one", () => {
+	// Two malformed ids used to collapse onto an existing id, so the model saw two
+	// tasks with the same number and could not address them separately.
+	const snapshot = readSnapshot([
+		customEntry([
+			{ id: 1, subject: "real 1", status: "pending" },
+			{ id: true, subject: "bool id falls back to index 1", status: "pending" },
+			{ id: -1, subject: "negative falls back to index 2", status: "pending" },
+		]),
+	]);
+	const ids = snapshot.tasks.map((t) => t.id);
+	assert.equal(new Set(ids).size, ids.length, `ids must be distinct, got ${ids.join(",")}`);
+	assert.equal(snapshot.tasks[0].id, 1, "the real id is untouched");
+});
+
+test("duplicate ids in the source are made distinct", () => {
+	const snapshot = readSnapshot([
+		customEntry([
+			{ id: 1, subject: "a", status: "pending" },
+			{ id: 1, subject: "b", status: "completed" },
+		]),
+	]);
+	assert.deepEqual(
+		snapshot.tasks.map((t) => t.id),
+		[1, 2],
+	);
+});
+
+test("a synthetic id never renumbers a real one, even when it comes first", () => {
+	// The bug this pins: assigning positional ids in list order used to see the
+	// synthetic 1 before the real 2 and renumber the real one.
+	const snapshot = readSnapshot([
+		customEntry([
+			{ id: 1, subject: "real 1", status: "pending" },
+			{ id: "x", subject: "no usable id", status: "pending" },
+			{ id: 2, subject: "real 2", status: "pending" },
+		]),
+	]);
+	assert.deepEqual(
+		snapshot.tasks.map((t) => [t.id, t.subject]),
+		[
+			[1, "real 1"],
+			[3, "no usable id"],
+			[2, "real 2"],
+		],
+		"real ids stay as the payload wrote them",
+	);
+});
+
+test("a record with neither a label nor a status is not a task", () => {
+	// Before this, `{}` became an open task with id 0 and no text, so the loop could
+	// never report the list clear.
+	const snapshot = readSnapshot([customEntry([{}, { id: 1, subject: "real", status: "completed" }])]);
+	assert.deepEqual(
+		snapshot.tasks.map((t) => t.id),
+		[1],
+	);
+	assert.equal(snapshot.open.length, 0);
+});
+
+test("an array element is not a task", () => {
+	const snapshot = readSnapshot([customEntry([[{ id: 1, status: "pending" }]])]);
+	assert.equal(snapshot.tasks.length, 0);
+});
+
+test("a foreign custom entry or toolResult carrying tasks is ignored", () => {
+	const snapshot = readSnapshot([
+		{ type: "custom", customType: "other-extension", id: "x", data: { tasks: [{ id: 5, status: "pending" }] } },
+		{
+			type: "message",
+			id: "y",
+			message: { role: "toolResult", toolName: "someone-else", details: { tasks: [{ id: 6, status: "pending" }] } },
+		},
+	]);
+	assert.equal(snapshot.tasks.length, 0, "only a todo tool with the expected name is read");
+});
+
+test("a task without a status is open, not completed", () => {
+	const snapshot = readSnapshot([customEntry([{ id: 1, subject: "no status" }])]);
+	assert.equal(snapshot.open.length, 1, "fail-open: missing status must not read as done");
+});
+
+test("the anchor survives an entry that also carries a list", () => {
+	const branch = [
+		{ type: "message", id: "u1", message: { role: "user", content: "go" } },
+		customEntry([{ id: 1, subject: "a", status: "pending" }]),
+	];
+	assert.equal(readSnapshot(branch).anchor, "u1");
 });

@@ -6,7 +6,7 @@ versions that was established against.
 | Component | Tested version | Recorded in |
 |---|---|---|
 | `@earendil-works/pi-coding-agent` | **1.5.0** | `PI_API_SNAPSHOT` in `src/index.ts` |
-| `@juicesharp/rpiv-todo` | **2.15.0** | this file (item 11) |
+| `@juicesharp/rpiv-todo` | **2.15.0** | this file (item 12) |
 | Node | 22.23.2 | README *Tested against* |
 
 Last verified **2026-11-04**. Bump a row here, its constant where one exists, and the README table in
@@ -97,4 +97,17 @@ full. Items that produce no signal in the transcript are marked _(silent)_.
       copy of the extension — which registers a duplicate `todo` tool.
     - failure is currently indistinguishable from "the agent never called `todo`": both report
       `stopped: no list` in `/todoloop`. Making those cases distinguishable is the next diagnostic
-      improvement, not a compatibility fix.
+      improvement, not a compatibility fix;
+    - a *newer* entry whose `tasks` is malformed is skipped in favour of an older valid one, so after a
+      shape change the reader serves the list as of the change. Not treated as authoritative-empty on
+      purpose: an errored `todo` call carries no `tasks`, and reading that as "list clear" would stop the
+      loop on a failed tool call.
+
+13. **The anchor skips user-role messages that carry a `customType`** _(silent)_. `anchorFromEntry`
+    ignores any `role: "user"` message with a string `customType`, which covers this extension's own
+    marker, another continuation extension's hidden resume message, and a command expansion that carries
+    one. The alternative — narrowing the skip to our own marker type — would let another extension's
+    hidden message move the anchor on every continuation and re-arm the budget each round, which defeats
+    the cap; the cost of the broad skip is that such a message does not reset the budget either. That is
+    one budget for one message, self-healing on the next plain message and visible in
+    `/todoloop`'s `anchor` line.
