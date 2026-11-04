@@ -19,8 +19,11 @@ name: publish
 
 on:
   push:
+    branches:
+      - main   # temporary: proves registration; the publish steps are tag-guarded
     tags:
       - "v*"
+  workflow_dispatch:
 permissions:
   contents: write # create the GitHub release
   id-token: write # trusted publishing (OIDC)
@@ -48,6 +51,7 @@ jobs:
       - run: npm run pack:check
 
       - name: Check the tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/')
         run: |
           tag="${GITHUB_REF_NAME#v}"
           version="$(node -p "require('./package.json').version")"
@@ -71,9 +75,11 @@ jobs:
           '
 
       - name: Publish
+        if: startsWith(github.ref, 'refs/tags/')
         run: npm publish --access public
 
       - name: Create the GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
