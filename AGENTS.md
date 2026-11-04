@@ -58,6 +58,9 @@ adding a `CHANGELOG.md` line — all in the same commit.
 - **Merge only into a `user` or `custom` tail.** pi rebuilds `bashExecution`/`branchSummary`/
   `compactionSummary` content from their own fields and ignores `content`, so merging into those would
   delete the block; they get a separate message and a documented adjacency (register item 15).
+- **Task text is model-authored, so it is sanitised, not interpolated.** `sanitizeLabel` collapses
+  newlines, escapes `</` and truncates, because a subject can come from a fetched page and is rendered
+  at the end of a request inside a tag. Never render a subject or `activeForm` raw.
 - **A marker is kept only where it separates two assistant turns.** There it is the alternation glue;
   removing it exposes consecutive assistant messages that alternation-requiring providers reject. Any
   other marker — at the tail, or followed by a human message — is dropped, because it would duplicate a
@@ -131,6 +134,7 @@ introduces an edge.
 | `deleted` tasks leave list, open set and signature | `deleted tasks are excluded from tasks, open and signature` |
 | malformed entries degrade to the empty snapshot | `malformed or missing state degrades to the empty snapshot` |
 | config defaults survive garbage; fields are coerced | `missing or malformed config falls back to defaults`, `valid fields override, invalid ones are ignored` |
+| model-authored task text is sanitised before it enters a request | `a hostile task subject cannot break out of the tag` |
 | the injection shows open tasks only, bounded, `activeForm` for in_progress | `injection lists open tasks with their status`, `injection is bounded and reports the overflow`, `injection uses activeForm only for in_progress`, `injection tolerates an empty subject` |
 | a status change moves the signature | `signature changes when a status changes` |
 | a record with neither a label nor a status is not a task, and arrays are not tasks | `a record with neither a label nor a status is not a task`, `an array element is not a task` |
@@ -142,6 +146,9 @@ introduces an edge.
 | the block is appended only when injecting, replacing a tail marker | `context strips the marker and appends the state block when tasks are open`, `a tail marker is replaced by the block, never followed by it`, `the block is appended when the tail is an assistant turn`, `the request never ends with two user-role messages` |
 | history markers are left in place; they are the alternation glue | `history markers are left alone when nothing is injected`, `history markers are left alone when injection is disabled` |
 | a malformed context payload is not rewritten | `context leaves a malformed payload alone instead of rewriting it` |
+| a task subject cannot break out of the injection tag | `a hostile task subject cannot break out of the tag` |
+| the block ends on the concession, not on a call to act | `the block ends on the concession, not on a call to act` |
+| pause stops the block as well as the continuation | `pause stops both the continuation and the steering block` |
 | either kill switch disables both hooks | `the global kill switch disables both hooks`, `the project-local kill switch disables both hooks` |
 | only a settle spends a round: tool turns cost nothing | `a turn that ran tools spends no round and appends no marker` |
 | a tool turn clears a pending strike | `tool turns clear a pending strike but never spend a round` |
@@ -150,7 +157,7 @@ introduces an edge.
 | a malformed event payload does not throw | `turn_end tolerates a malformed event payload instead of throwing` |
 | clamped and invalid config values fall back | `numbers are clamped so a typo cannot defeat the cap it configures`, `a value below 1 is treated as invalid, not as zero` |
 | an errored or aborted turn is never continued | `turn_end stops on an errored or aborted turn and does not spend a round` |
-| the cap and pause gate the loop at the hook level | `the round cap is sticky for one human message`, `pause and resume gate the loop` |
+| the cap and pause gate the loop at the hook level | `the round cap is sticky for one human message`, `pause stops both the continuation and the steering block` |
 | the docs match the code | `the pi snapshot constant appears in the README and the register`, `the verification date appears in the README and the register`, `the tested rpiv-todo version is recorded in both places`, `the CHANGELOG documents the version in package.json`, `every README link target inside the repository exists`, `every test name the invariant map cites actually exists`, `every stop reason the code can report appears in the README table`, `the README configuration table states every default, not just the numbers` |
 
 ## Adding or changing a continuation rule

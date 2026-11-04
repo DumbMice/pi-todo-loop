@@ -25,6 +25,8 @@ const REQUIRED = [
 	"tsconfig.json",
 ];
 
+const FORBIDDEN = ["test", "test/", ".github", "node_modules", "package-lock.json"];
+
 const raw = execFileSync("npm", ["pack", "--dry-run", "--json"], { encoding: "utf8" });
 const [tarball] = JSON.parse(raw);
 const files = new Set(tarball.files.map((file) => file.path));
@@ -46,4 +48,10 @@ for (const declared of entry.extensions ?? []) {
 	}
 }
 
-console.log(`pack ok: ${files.size} files, entry point and docs present`);
+const leaked = [...files].filter((path) => FORBIDDEN.some((bad) => path === bad || path.startsWith(`${bad}/`)));
+if (leaked.length > 0) {
+	console.error(`pack check failed — dev-only paths in the tarball:\n  ${leaked.join("\n  ")}`);
+	process.exit(1);
+}
+
+console.log(`pack ok: ${files.size} files, entry point and docs present, no dev paths`);

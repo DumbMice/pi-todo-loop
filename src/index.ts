@@ -102,7 +102,7 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 	};
 
 	pi.on("context", async (event: any, ctx: SessionContext) => {
-		if (isDisabled(ctx)) return undefined;
+		if (isDisabled(ctx) || state.paused) return undefined;
 		// A hook that rewrites an unknown payload into a one-message request is
 		// worse than doing nothing; leave the request alone.
 		if (!Array.isArray(event?.messages)) return undefined;
@@ -267,7 +267,12 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 				return;
 			}
 
-			if (rest.length > 0) {
+			if (command !== "" && !["status", "pause", "resume", "reset"].includes(command)) {
+				ctx.ui?.notify?.(
+					`todo-loop: unknown argument "${command}"; use status, pause, resume or reset`,
+					"warning",
+				);
+			} else if (rest.length > 0) {
 				ctx.ui?.notify?.(
 					`todo-loop: ignoring extra arguments "${rest.join(" ")}"; use status, pause, resume or reset`,
 					"warning",

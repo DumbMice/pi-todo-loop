@@ -12,7 +12,8 @@ and stores the list; it never asks pi for another turn. This adds the turn.
 
 It continues what the list says — it cannot tell a stale list from a finished one, so it needs a list
 the model actually maintains. It buys *liveness*, not work: a model can satisfy the loop by closing
-tasks, including deleting placeholders it never intended to do.
+tasks — including deleting placeholders — or by adding a task that blocks completion, so a refusal can
+become budget burn. Both are bounded by `maxStrikes` and both are visible in `/todoloop`.
 
 ## Example
 
@@ -190,7 +191,7 @@ cannot defeat the cap it configures.
 | Command | Effect |
 |---|---|
 | `/todoloop` | status: mode, rounds, strikes, open count, the anchor it is tracking (`#<position>` when that message carried no id, `(none)` before any), why it last stopped, config path |
-| `/todoloop pause` | stop continuing until you resume or restart |
+| `/todoloop pause` | stop continuing **and** stop injecting the block, until you resume or restart |
 | `/todoloop resume` | allow the next settle to continue again |
 | `/todoloop reset` | clear the round and strike counters and forget the list signature |
 
@@ -254,6 +255,10 @@ touch .pi/todo-loop-off             # this project
   kill-switch paths and the session branch. Counters, the pause flag and the last stop reason live in
   memory: `/reload`, a restart or a resumed session starts a new budget and re-reads the list from the
   branch, and a pause does not survive either.
+- **The list is read from the session branch, not from what the model can see.** After a compaction the
+  model's context drops older entries, but the reader still walks the whole branch, so `/todoloop` can
+  report open work the model has no list for. That is deliberate — the newest todo state is the right
+  answer even when the model cannot see it — but it means the panel and the model can disagree.
 - **`no list` is one status for four causes:** no todo tool is installed, the agent never called a tool
   named `todo`, the tool it called writes a shape this extension does not recognise, or every task was
   `deleted`. The status cannot currently tell them apart.

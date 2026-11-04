@@ -234,6 +234,7 @@ for (const scenario of SCENARIOS) {
 		assert.equal(outcome.continuations, scenario.expect.continuations, "continuations proposed");
 		assert.equal(outcome.rounds, scenario.expect.rounds, "rounds left");
 		assert.equal(outcome.strikes, scenario.expect.strikes, "strikes left");
+		assert.equal(outcome.markers, scenario.expect.markers, "markers written");
 		assert.match(outcome.reason, scenario.expect.reason, `last reason: ${outcome.reason}`);
 		assert.match(outcome.mode, scenario.expect.mode, `status header: ${outcome.mode}`);
 	});

@@ -175,15 +175,21 @@ test("the round cap is sticky for one human message", async () => {
 	assert.match(h.notices.at(-1) as string, /stopped: round cap 1 reached/);
 });
 
-test("pause and resume gate the loop", async () => {
+test("pause stops both the continuation and the steering block", async () => {
 	const h = harness(branchWith([task(1, "pending")]));
 	const work = { outcome: "completed", toolResults: [], entries: [] };
 
 	await h.commands.todoloop.handler("pause", h.ctx);
-	assert.equal(await run(h, "turn_end", work), undefined);
+	assert.equal(await run(h, "turn_end", work), undefined, "no continuation while paused");
+	assert.equal(
+		await run(h, "context", { messages: [{ role: "assistant", content: "a" }] }),
+		undefined,
+		"and no injected block while paused",
+	);
 
 	await h.commands.todoloop.handler("resume", h.ctx);
 	assert.equal((await run(h, "turn_end", work))?.continue, true);
+	assert.ok(await run(h, "context", { messages: [{ role: "assistant", content: "a" }] }));
 });
 
 test("a turn that ran tools spends no round and appends no marker", async () => {
@@ -257,14 +263,6 @@ test("a marker after a human message still yields one user-role tail", async () 
 	assert.equal(result.messages.at(-1).content.length, 2, "the block is merged into the human message");
 });
 
-test("the status header says stopped once the budget is shut", async () => {
-	const h = harness(branchWith([task(1, "pending")]), { maxRounds: 1 });
-	const work = { outcome: "completed", toolResults: [], entries: [] };
-	await run(h, "turn_end", work);
-	await run(h, "turn_end", work);
-	await h.commands.todoloop.handler("", h.ctx);
-	assert.match(h.notices.at(-1) as string, /todo-loop stopped/);
-});
 
 test("a marker between an assistant turn and a human message is dropped", async () => {
 	// A marker only separates two assistant turns. Once a human message follows it,
@@ -357,6 +355,9 @@ test("a custom message tail is merged into, because pi honours its content", asy
 	});
 	assert.equal(result.messages.length, 2);
 	assert.equal(result.messages.at(-1).customType, "other");
+	const parts = result.messages.at(-1).content as any[];
+	assert.equal(parts.length, 2, "the block must survive the merge");
+	assert.match(parts[1].text, /tracked task\(s\) are still open/);
 });
 
 test("merging into an array-content human message preserves the parts and appends the block", async () => {

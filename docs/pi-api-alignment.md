@@ -124,3 +124,11 @@ full. Items that produce no signal in the transcript are marked _(silent)_.
     get a separate user message instead, which means the request briefly has two user-role messages in a
     row. Accepted deliberately: a compaction summary is exactly when the model most needs the list, and
     losing it silently is worse than an adjacency that providers merge anyway.
+
+16. **The reader walks `getBranch()`, which is not the model-visible context.** pi's compaction-aware
+    projection is `buildContextEntries()`, and a `context_edit` can hide an entry from future model
+    context while it stays on the branch. Reading the branch therefore means the extension can report a
+    task list the model cannot see — after a compaction, or after another extension edited context. Kept
+    deliberately: the newest persisted todo state is the right answer for the loop's counters, and
+    reading the projected context instead would make the list vanish mid-run, which is the failure this
+    package exists to prevent.

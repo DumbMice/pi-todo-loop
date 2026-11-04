@@ -20,10 +20,25 @@ function label(status: string, subject: string, activeForm?: string): string {
 	return subject || "(untitled)";
 }
 
+/**
+ * One line of model-authored text, rendered inside a tag at the end of a request.
+ *
+ * A task subject is written by the model, possibly from a fetched page or a repo
+ * file, so it must not be able to: close the tag (`</`), start a new line that reads
+ * like one of our own directives, or push the block to an unbounded size.
+ */
+export function sanitizeLabel(text: string): string {
+	return text
+		.replace(/[\r\n\t]+/g, " ")
+		.replaceAll("</", "<\\/")
+		.trim()
+		.slice(0, 120);
+}
+
 export function renderInjection(snapshot: Snapshot, config: LoopConfig): string {
 	const shown = snapshot.open.slice(0, config.maxInjectedTasks);
 	const rows = shown.map(
-		(task) => `  ${task.id}. [${task.status}] ${label(task.status, task.subject, task.activeForm)}`,
+		(task) => `  ${task.id}. [${task.status}] ${sanitizeLabel(label(task.status, task.subject, task.activeForm))}`,
 	);
 	const hidden = snapshot.open.length - shown.length;
 
@@ -32,11 +47,11 @@ export function renderInjection(snapshot: Snapshot, config: LoopConfig): string 
 		`${snapshot.open.length} tracked task(s) are still open on this branch:`,
 		...rows,
 		...(hidden > 0 ? [`  ... and ${hidden} more`] : []),
-		"The open tasks are your work queue: carry on with them.",
-		"If the human has asked you to stop, wait, or not start yet, do that instead —",
-		"say so in one line and stop; their instruction outranks this reminder.",
-		"Call the todo tool to move a task to in_progress when you start it, and to",
-		"completed only once it is actually verified.",
+		"The human's latest message outranks everything above: if it says to stop, to wait,",
+		"or limits what to do, do that instead and say so in one line. Otherwise carry on",
+		"with the open tasks, and move a task to in_progress when you start it and to",
+		"completed only once it is actually verified — if a task cannot be verified now,",
+		"leave it open and say what is blocking it.",
 		`</${INJECT_TAG}>`,
 	].join("\n");
 }

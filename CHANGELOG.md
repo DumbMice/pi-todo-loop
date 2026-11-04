@@ -39,7 +39,12 @@ Initial release.
   (`settle`, `tool`, `edit`, `human`, pause/resume/reset, error/abort, kill switch), asserting
   continuations, markers, rounds, strikes, the `/todoloop` reason and header at once. Re-introducing any
   of the three historical budget defects fails it.
+- Task text is sanitised before it enters a request: newlines collapse, `</` is escaped and labels are
+  truncated, so a task subject cannot close the injection tag or forge a directive. Verified against a
+  crafted subject that closed the tag and inserted a `SYSTEM:` line — the structure broke before the
+  fix and the model refused both times.
 - `scripts/check-pack.mjs` as `npm run pack:check`: asserts the published tarball really contains the
-  entry point, sources, docs, licence and `tsconfig.json` (`npm pack --dry-run` exits 0 otherwise).
+  entry point, sources, docs, licence and `tsconfig.json`, and that no dev-only path (`test/`,
+  `.github/`) leaks into it (`npm pack --dry-run` exits 0 otherwise).
 
 [0.1.0]: https://github.com/DumbMice/pi-todo-loop/releases/tag/v0.1.0
