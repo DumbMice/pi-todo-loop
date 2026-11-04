@@ -10,6 +10,9 @@ written by [`@juicesharp/rpiv-todo`](https://github.com/juicesharp/rpiv-mono/tre
 still has open tasks, and keeps that list in front of the model across compaction. `rpiv-todo` renders
 and stores the list; it never asks pi for another turn. This adds the turn.
 
+It continues what the list says — it cannot tell a stale list from a finished one, so it needs a list
+the model actually maintains.
+
 ## Example
 
 An ideal run — the model keeps the list current, so the loop has something to follow:
@@ -60,8 +63,9 @@ The two are distinguishable from `/todoloop` alone: `strikes 1/2` is the prose c
   The list lives in extension-owned session data — a `rpiv-todo-state` custom entry's `data.tasks`, or
   a `todo` toolResult's `details.tasks` — and pi puts neither in the prompt.
 - A model that runs tools but rarely updates the list. Expect what the counters predict: a model that
-  answers in prose only gets **at most two** continuations (one if the list was already known when your
-  message arrived) before the strike budget stops it; a model that runs tools but leaves the list stale
+  answers in prose only gets **at most two** continuations before the strike budget stops it — the first
+  continuation is free because the first sighting of the list counts as progress, so the two strikes
+  land on the following turns; a model that runs tools but leaves the list stale
   keeps the loop alive for the full `maxRounds` per message, with the injected statuses as stale as the
   list. See
   [rpiv-mono#259](https://github.com/juicesharp/rpiv-mono/issues/259), where DeepSeek models display a
@@ -143,8 +147,9 @@ rm -f ~/.pi/agent/todo-loop.json    # optional config
 rm -f ~/.pi/agent/todo-loop-off .pi/todo-loop-off   # optional kill switches
 ```
 
-Then `/reload`. Existing `todo-loop:continue` entries stay in old session files, hidden and inert;
-nothing was written to your working tree.
+Then `/reload`. Existing `todo-loop:continue` entries stay in old session files — hidden in the TUI, and
+once this extension is gone nothing replaces them, so they reach the model as one short user-role line
+each. They are inert otherwise, and nothing was ever written to your working tree.
 
 ## Configuration
 
@@ -190,15 +195,18 @@ touch .pi/todo-loop-off             # this project
 ## Behaviour to expect
 
 - **Continuation is silent.** Each continuation appends one `custom_message` with `display: false`
-  — a 27-character body (`<todo_loop n="1" open="2"/>`), roughly 120 bytes as a session entry — and
+  — a constant 21-character body (`<todo_loop_continue/>`), roughly 200 bytes as a session entry — and
   requests one more turn. Nothing is added to the visible transcript.
-- **Every marker is stripped from every request.** Continuation markers are persisted, so they are
-  removed before each request, all of them, regardless of the current list: keeping them would grow the
-  request prefix by one user-role block per continuation for the rest of the session. When the kill
-  switch is set nothing is rewritten at all.
+- **Markers stay in history; the tail marker is replaced.** A continuation marker sits between two
+  assistant turns, so it is what keeps the conversation alternating; removing it would expose runs of
+  consecutive assistant messages that strict providers reject. Markers therefore stay, and there is one
+  per continuation (~200 bytes, no counters in the body). When the state block is appended, a marker at
+  the tail is replaced by it, so a request never ends on two user-role messages.
 - **The task list is injected on every request** while tasks are open, as a `<todo_loop_state>` block:
   open tasks with ids and statuses, plus an instruction to work the list rather than ask whether to
   continue. It is not persisted, so compaction cannot remove it.
+- **With the kill switch set, nothing is rewritten at all.** Markers already in the session then reach
+  the model as one short user-role line each, exactly as they do in any non-injecting request.
 - **The injected block is the last thing in the request.** It is user-role text, so it competes with
   your own newest message: while tasks are open the model is told the list is authoritative. That is
   why it is one bounded paragraph, and why `injectState: false` exists.
@@ -225,8 +233,10 @@ touch .pi/todo-loop-off             # this project
   `maxRounds` × session size. That, not the block, is the dominant term.
 - Every request also pays one backward walk of the branch, a config read (`readFileSync`) and two
   `existsSync` probes for the kill switch, and — while tasks are open — the injected block (~100
-  tokens). The block is appended at the tail, so the cached prefix is unaffected; `injectState: false`
-  removes it and leaves the model to call the todo tool's `list` action.
+  tokens). The block is appended at the tail, so the block itself does not disturb the cached prefix;
+  note that returning a changed list makes pi re-collapse system messages into one head, which is
+  lossless but is a request-layout change. `injectState: false` adds no block at all and leaves the
+  model to call the todo tool's `list` action.
 - Bounds: `maxRounds` per human message, `maxStrikes` consecutive no-progress turns, and no continuation
   at all on `error` / `aborted`. There is no absolute session ceiling; a resumed session starts a new
   budget.
@@ -239,7 +249,7 @@ Reason strings from `/todoloop`, and what they mean:
 |---|---|
 | `continuing: round 1/12, 2 open` | working as intended |
 | `stopped: list is clear` | every remaining task is `completed` — a list whose tasks are all `deleted` reports `no list` instead |
-| `stopped: no list` | no recognised todo state on the branch — see the three causes above |
+| `stopped: no list` | no recognised todo state on the branch — see the four causes above |
 | `stopped: 2 consecutive turns with no progress, 2 open` | the model stopped touching the list and stopped running tools; raise `maxStrikes` only if you want more attempts |
 | `stopped: round cap 12 reached, 2 open` | the budget is spent; send a message to start a new one |
 | `stopped: turn outcome was error` / `aborted` | the provider failed, or you aborted the turn |

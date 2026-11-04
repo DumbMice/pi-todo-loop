@@ -99,32 +99,58 @@ test("context strips the marker and appends the state block when tasks are open"
 	assert.match(text, /2 tracked task\(s\) are still open/);
 });
 
-test("context strips earlier markers when the list is clear, and appends nothing", async () => {
-	const h = harness(branchWith([task(1, "completed")]));
-	const result = await run(h, "context", {
-		messages: [
-			{ role: "user", content: "go" },
-			{ role: "user", customType: MARKER_TYPE, content: "<todo_loop n=\"1\" open=\"2\"/>" },
-			{ role: "assistant", content: "done" },
-			{ role: "user", customType: MARKER_TYPE, content: "<todo_loop n=\"2\" open=\"1\"/>" },
-			{ role: "assistant", content: "all clear" },
-		],
-	});
+const marker = () => ({ role: "user", customType: MARKER_TYPE, content: "<todo_loop_continue/>" });
 
-	assert.ok(result?.messages, "persisted markers must be stripped even when nothing is injected");
-	assert.deepEqual(
-		result.messages.map((message: any) => message.role),
-		["user", "assistant", "assistant"],
-		"every marker is gone, including the last one",
+test("history markers are left alone when nothing is injected", async () => {
+	const h = harness(branchWith([task(1, "completed")]));
+	assert.equal(
+		await run(h, "context", { messages: [{ role: "user", content: "go" }, marker(), { role: "assistant", content: "a" }] }),
+		undefined,
+		"markers are the alternation glue; removing them would expose assistant runs",
 	);
 });
 
-test("context strips markers and appends no block when injection is disabled", async () => {
+test("history markers are left alone when injection is disabled", async () => {
 	const h = harness(branchWith([task(1, "pending")]), { injectState: false });
+	assert.equal(
+		await run(h, "context", { messages: [{ role: "user", content: "go" }, marker(), { role: "assistant", content: "a" }] }),
+		undefined,
+	);
+});
+
+test("a tail marker is replaced by the block, never followed by it", async () => {
+	const h = harness(branchWith([task(1, "pending")]));
 	const result = await run(h, "context", {
-		messages: [{ role: "user", customType: MARKER_TYPE, content: "marker" }],
+		messages: [{ role: "user", content: "go" }, { role: "assistant", content: "a" }, marker()],
 	});
-	assert.deepEqual(result?.messages, [], "the marker is still removed");
+	const roles = result.messages.map((message: any) => (message.customType ? "marker" : message.role));
+	assert.deepEqual(roles, ["user", "assistant", "user"], "one user-role tail, not marker + block");
+	assert.match(result.messages.at(-1).content[0].text, /1 tracked task\(s\) are still open/);
+});
+
+test("the block is appended when the tail is an assistant turn", async () => {
+	const h = harness(branchWith([task(1, "pending"), task(2, "pending")]));
+	const result = await run(h, "context", {
+		messages: [{ role: "user", content: "go" }, marker(), { role: "assistant", content: "a" }],
+	});
+	const roles = result.messages.map((message: any) => (message.customType ? "marker" : message.role));
+	assert.deepEqual(roles, ["user", "marker", "assistant", "user"]);
+});
+
+test("the request never ends with two user-role messages", async () => {
+	const h = harness(branchWith([task(1, "pending")]));
+	// Realistic orders only: a marker is always persisted after an assistant turn.
+	for (const messages of [
+		[{ role: "user", content: "go" }, { role: "assistant", content: "a" }, marker()],
+		[{ role: "user", content: "go" }, marker(), { role: "assistant", content: "b" }],
+		[{ role: "user", content: "go" }, marker(), { role: "assistant", content: "b" }, marker()],
+	]) {
+		const result = await run(h, "context", { messages });
+		const tail = result.messages.at(-1);
+		const before = result.messages.at(-2);
+		assert.equal(tail.customType ?? tail.role, "user");
+		assert.notEqual(before?.customType ?? before?.role, "user", JSON.stringify(messages.map((m: any) => m.role)));
+	}
 });
 
 test("context leaves a malformed payload alone instead of rewriting it", async () => {
@@ -173,7 +199,7 @@ test("turn_end requests one turn with a hidden marker when work is open", async 
 	assert.equal(appended.customType, MARKER_TYPE);
 	assert.equal(appended.display, false, "the marker must never render");
 	assert.equal(result.entries.length, 2, "existing proposals are preserved");
-	assert.match(appended.content, /<todo_loop n="1" open="1"\/>/);
+	assert.equal(appended.content, "<todo_loop_continue/>", "the marker carries no counters");
 });
 
 test("turn_end stops on an errored or aborted turn and does not spend a round", async () => {

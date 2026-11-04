@@ -26,22 +26,28 @@ full. Items that produce no signal in the transcript are marked _(silent)_.
    invalid continuation and drops it. pi offers no `resume()` that appends nothing, so a continuation
    is always expressed as *one* appended entry. We append a `custom_message` with `display: false`:
    invisible in the TUI, about 120 bytes per continuation in the journal _(silent in the transcript)_.
-2. **Every marker is stripped from every request.** Markers are persisted, one per continuation, so the
-   `context` hook removes every message whose `customType` is `todo-loop:continue` before
-   serialization — not only the newest one. Leaving them in would grow the request prefix by one
-   user-role block per continuation for the rest of the session, and the model would read `n="k"`
-   markers implying the loop is still running. With the kill switch set the hook does nothing at all,
-   because a disabled extension must not rewrite the request.
+2. **Markers stay in history and are not stripped.** They sit between two assistant turns, so they are
+   what keeps the conversation alternating: `assistant → marker(user) → assistant`. Removing them
+   exposes runs of consecutive assistant messages, which alternation-requiring providers reject — a
+   stricter risk than the one marker-per-round growth they cost (about 200 bytes each, bounded by
+   `maxRounds` per chain). Their body is constant (`<todo_loop_continue/>`), so a marker left in
+   history cannot claim the loop is on some other round. With the kill switch set the hook rewrites
+   nothing, because a disabled extension must not touch the request.
 3. **Two different tails are in play, and only one of them is constrained.** pi's boundary checks the
-   *persisted projection* when `turn_end` proposes `continue: true`; the appended marker is what makes
-   that projection end non-assistant (`_buildBoundaryContext().canContinue`). The *provider request*
-   built by the `context` hook is a different list, and it may legitimately end on the assistant
-   message — that is a normal continuation of the assistant turn, and it is the mechanism used by
-   pi-invisible-continue's `/continue`. Conflating the two is the mistake this item exists to prevent.
-4. **With `injectState: false` the marker is stripped and nothing replaces it.** The request then ends
-   on the assistant message, which is accepted by the providers tested here; the model receives no
-   `todo_loop_state` block and must call the todo tool's `list` action to learn the list. This is the
-   one configuration where the extension asks the model for compliance instead of enforcing state.
+   *persisted projection* when `turn_end` proposes `continue: true`; the appended marker is what
+   satisfies that check for this extension (`_buildBoundaryContext().canContinue`, computed from the
+   committed drafts — any non-assistant final projected message would do, including a queued one). The
+   *provider request* built by the `context` hook is a different list: pi documents no constraint on its
+   final role, and a request ending on the assistant message is a normal continuation — the mechanism
+   used by `pi-invisible-continue`'s `/continue`
+   (<https://github.com/monotykamary/pi-invisible-continue>, not re-tested here). Conflating the two is
+   the mistake this item exists to prevent.
+4. **The block is appended only where it is needed, and it takes the tail.** Three configurations get
+   no block: `injectState: false`, a list with no open task, and the kill switch. In the first two the
+   request keeps whatever tail the history has (a marker or an assistant turn) and the model must call
+   the todo tool's `list` action to learn the list — the one place this extension asks for compliance
+   instead of enforcing state. No request with an assistant tail has been exercised against a provider
+   in this repository's testing; the live runs used the default configuration.
 5. **Task state is read from the branch on every request, not cached in memory.** Loop state (counters,
    anchor, pause) is in memory and therefore resets with the process. No `session_compact`
    resync handler is needed, and a branch switch cannot leak another branch's tasks. The cost is one

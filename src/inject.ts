@@ -6,8 +6,8 @@
  *
  *   - It is the *whole* open list (bounded), not a hint to call `list`. After
  *     compaction the model has no other way to learn the list still exists.
- *   - It is a user-role block, so the request never ends on an assistant
- *     message when the hidden continuation marker has been stripped.
+ *   - It is a user-role block appended at the tail, replacing a trailing
+ *     continuation marker so the request never ends on two user-role messages.
  */
 
 import type { LoopConfig } from "./loop.ts";

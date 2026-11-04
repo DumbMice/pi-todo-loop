@@ -51,9 +51,17 @@ These are the invariants the suite protects. Changing one means changing its tes
 README text, the matching `docs/pi-api-alignment.md` item (or marking that item inapplicable), and
 adding a `CHANGELOG.md` line — all in the same commit.
 
-- **The marker and the injection are coupled.** Stripping `todo-loop:continue` from the request
-  removes the tail that satisfied pi's non-assistant requirement, so the same handler must append the
-  state block. Do not implement one without the other.
+- **Markers are history glue, not throwaway artefacts.** A marker is persisted between two assistant
+  turns, which is what keeps the conversation alternating; stripping historical markers exposes runs of
+  consecutive assistant messages that alternation-requiring providers reject. Markers are therefore
+  never removed from history. Only a marker sitting at the **tail** is replaced by the state block, so a
+  request never ends on two user-role messages.
+- **The marker body is constant** (`<todo_loop_continue/>`). It carries no round counter, because a
+  persisted marker must not claim the loop is on round `n` long after that chain ended. Counters live in
+  memory and are reported by `/todoloop`.
+- **The injection is conditional; the marker is not.** The block is appended only when `injectState` is
+  on and tasks are open. The non-assistant constraint is pi's `turn_end` projection check, not the
+  request (register item 3) — do not re-derive a coupling between the two.
 - **One entry per continuation is a floor, not a choice.** pi has no `resume()` that appends nothing.
   Do not try to reach zero entries; keep the single `custom_message` with `display: false`.
 - **The marker `customType` is a stable literal.** Sessions recorded by earlier builds must keep
@@ -101,7 +109,7 @@ introduces an edge.
 | a list change resets strikes even with no tool call | `a list change counts as progress even with no tool results` |
 | the round cap stops the loop | `round cap stops the loop`, `config caps are honoured` |
 | a new human message resets the budget | `a new human message resets the budget` |
-| a stop keeps the counters, so the cap stays shut for the same anchor | `a stop keeps the counters, so a cap stays shut for the same anchor`, `a new human message after a stop starts a fresh budget` |
+| a stop keeps the counters for the anchor, and a new message clears them | `a stop keeps the counters, so a cap stays shut for the same anchor`, `a new human message after a stop starts a fresh budget`, `the round cap is sticky for one human message` |
 | the newest custom entry wins over older ones | `reads the newest rpiv-todo custom entry` |
 | the toolResult fallback works and loses to the custom entry | `falls back to todo toolResult details`, `prefers the custom entry over the toolResult fallback` |
 | the anchor is the newest human message: not assistant, toolResult, or our own marker | `anchor is the newest human message id, ignoring assistant and toolResult`, `our own projected marker never becomes the anchor`, `a user message without an id anchors on its position` |
@@ -113,12 +121,16 @@ introduces an edge.
 | an unknown status counts as open, and status text is normalised | `an unknown status counts as open, not as done`, `status is normalised, so a differently-cased value still closes` |
 | a task without a usable id falls back to its position | `a task without a usable id falls back to its position, not to being dropped`, `a null or empty id falls back to the position instead of colliding on 0` |
 | the newer shape wins, in either order | `the newer of a custom entry and a toolResult wins, in either order` |
-| every marker is stripped from every request; the block is appended only when injecting | `context strips the marker and appends the state block when tasks are open`, `context strips earlier markers when the list is clear, and appends nothing`, `context strips markers and appends no block when injection is disabled`, `context leaves a malformed payload alone instead of rewriting it` |
+| the block is appended only when injecting, replacing a tail marker | `context strips the marker and appends the state block when tasks are open`, `a tail marker is replaced by the block, never followed by it`, `the block is appended when the tail is an assistant turn`, `the request never ends with two user-role messages` |
+| history markers are left in place; they are the alternation glue | `history markers are left alone when nothing is injected`, `history markers are left alone when injection is disabled` |
+| a malformed context payload is not rewritten | `context leaves a malformed payload alone instead of rewriting it` |
 | either kill switch disables both hooks | `the global kill switch disables both hooks`, `the project-local kill switch disables both hooks` |
-| a continuation appends one hidden `custom_message` with `display: false` and preserves prior proposals | `turn_end requests one turn with a hidden marker when work is open` |
+| a continuation appends one hidden `custom_message` with a constant body and preserves prior proposals | `turn_end requests one turn with a hidden marker when work is open` |
 | a malformed event payload does not throw | `turn_end tolerates a malformed event payload instead of throwing` |
+| clamped and invalid config values fall back | `numbers are clamped so a typo cannot defeat the cap it configures`, `a value below 1 is treated as invalid, not as zero` |
+| an errored or aborted turn is never continued | `turn_end stops on an errored or aborted turn and does not spend a round` |
 | the cap and pause gate the loop at the hook level | `the round cap is sticky for one human message`, `pause and resume gate the loop` |
-| the docs match the code | `the pi snapshot constant appears in the README and the register`, `the verification date appears in the README and the register`, `the tested rpiv-todo version is recorded in both places`, `the CHANGELOG documents the version in package.json`, `every README link target inside the repository exists`, `every test name the invariant map cites actually exists`, `every stop reason the code can report appears in the README table`, `the README configuration table states the real defaults` |
+| the docs match the code | `the pi snapshot constant appears in the README and the register`, `the verification date appears in the README and the register`, `the tested rpiv-todo version is recorded in both places`, `the CHANGELOG documents the version in package.json`, `every README link target inside the repository exists`, `every test name the invariant map cites actually exists`, `every stop reason the code can report appears in the README table`, `the README configuration table states every default, not just the numbers` |
 
 ## Adding or changing a continuation rule
 
@@ -135,15 +147,16 @@ introduces an edge.
 
 Ranked by how easily a small change breaks them.
 
-1. **The tail invariant.** A continuation whose projection ends on an assistant message is rejected by
-   pi. Every branch of the `context` hook must leave a non-assistant tail; the coupling rule above is
-   the guard, and `test/index.test.ts` pins the three branches.
+1. **Two different tails.** A continuation whose *persisted projection* ends on an assistant message is
+   rejected by pi (`canContinue`); the *request* has no such constraint but must keep role alternation.
+   Conflating the two produced the round-2 marker leak. `test/index.test.ts` pins both shapes.
 2. **Counter lifecycle.** `rounds`, `strikes` and `anchor` are mutated in one place and reset in three
    (anchor change, `/todoloop reset`, process start). A missing reset either loops forever or refuses to
    continue after one bad turn; a reset in the wrong place (inside `stop()`) silently re-arms the cap.
 3. **The anchor.** It must be human-authored and never empty. `#<index>` is the fallback when an entry
    carries no id; returning `""` would make "no anchor yet" and "this entry had no id"
-   indistinguishable, freezing the per-message reset.
+   indistinguishable, freezing the per-message reset. A branch switch that lands on a sibling branch
+   with the same newest user entry keeps the spent budget — deliberate, so a fork cannot refill it.
 4. **State shape drift in the todo tool.** Both shapes are read defensively; keep `normalizeTask`
    tolerant of renamed fields (`content` vs `subject`) and of unusable ids.
 5. **Branch walking.** The reader breaks early on the newest *custom* entry plus the anchor, and keeps

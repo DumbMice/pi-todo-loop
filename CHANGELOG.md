@@ -18,18 +18,22 @@ Initial release.
   never persisted, closing the post-compaction context hole
   ([rpiv-mono#222](https://github.com/juicesharp/rpiv-mono/issues/222)) and the "model
   never calls the todo tool's `list` action" failure ([rpiv-mono#159](https://github.com/juicesharp/rpiv-mono/issues/159)).
-- Hidden continuation marker (`custom_message`, `display: false`, 27-character body) that
-  is stripped from the provider request on the path that appends the state block. When
-  `injectState` is false, when no task is open, or when the kill switch is set, the marker
-  is kept and serves as the non-assistant tail.
+- Hidden continuation marker (`custom_message`, `display: false`, constant 21-character body
+  `<todo_loop_continue/>`, ~200 bytes as a session entry). Markers are kept in history: they sit
+  between assistant turns and are what keeps the conversation alternating. A marker at the tail is
+  replaced by the state block, so a request never ends on two user-role messages.
 - Task state read from `rpiv-todo-state` custom entries with a `todo` toolResult
   `details.tasks` fallback, the newer of the two winning; never throws inside a turn
   boundary, and a task with an unusable id falls back to its position instead of vanishing.
 - `/todoloop` command: `status`, `pause`, `resume`, `reset`.
 - Kill switch: `~/.pi/agent/todo-loop-off` or `.pi/todo-loop-off`.
-- Config at `~/.pi/agent/todo-loop.json`; invalid values fall back to defaults.
-- 44 tests, runnable with no dependencies: decision policy, state reader, injection
-  renderer, config loader, the pi-facing hooks through a stub `pi`, and a documentation
-  test that pins the tested-version table, the verification date and README link targets.
+- Config at `~/.pi/agent/todo-loop.json`; invalid values fall back to defaults, and numbers are
+  clamped (`maxRounds` ≤ 1000, `maxStrikes` ≤ 100, `maxInjectedTasks` ≤ 50).
+- 59 tests, runnable with no dependencies: decision policy, state reader, injection renderer,
+  config loader, the pi-facing hooks through a stub `pi`, and documentation tests that pin the
+  tested-version table, the invariant map's test names, the reason table, the configuration table
+  and README link targets.
+- `scripts/check-pack.mjs` as `npm run pack:check`: asserts the published tarball really contains the
+  entry point, sources, docs, licence and `tsconfig.json` (`npm pack --dry-run` exits 0 otherwise).
 
 [0.1.0]: https://github.com/DumbMice/pi-todo-loop/releases/tag/v0.1.0

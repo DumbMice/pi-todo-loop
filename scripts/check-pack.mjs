@@ -16,10 +16,13 @@ const REQUIRED = [
 	"src/state.ts",
 	"src/inject.ts",
 	"src/config.ts",
+	"docs/pi-api-alignment.md",
 	"README.md",
 	"AGENTS.md",
+	"CONTRIBUTING.md",
 	"CHANGELOG.md",
 	"LICENSE",
+	"tsconfig.json",
 ];
 
 const raw = execFileSync("npm", ["pack", "--dry-run", "--json"], { encoding: "utf8" });

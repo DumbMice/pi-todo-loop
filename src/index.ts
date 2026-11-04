@@ -3,8 +3,8 @@
  *
  * Pairs with `@juicesharp/rpiv-todo`; does not import or patch it. Three hooks:
  *
- *   context    strip the hidden continuation marker from the request, then
- *              append the live open-task list at the tail (never persisted)
+ *   context    append the live open-task list at the tail (never persisted),
+ *              replacing a trailing marker so the request never ends user → user
  *   turn_end   request another turn while tasks are open, bounded by
  *              maxRounds / maxStrikes (see loop.ts)
  *   /todoloop  status | pause | resume | reset
@@ -14,10 +14,11 @@
  *   - A `turn_end` continuation must leave the final message role != assistant,
  *     so one entry is mandatory (`_buildBoundaryContext().canContinue` in pi
  *     1.5.0). We append a `custom_message` with `display: false`.
- *   - That marker must be stripped from the provider request, and stripping it
- *     would leave an assistant tail — which is why the state injection is
- *     appended whenever the marker is stripped. Do not remove one without the
- *     other.
+ *   - Markers are never removed from history: they sit between assistant turns and
+ *     are what keep the conversation alternating. A marker at the tail is replaced
+ *     by the state block, so the request ends on exactly one user message.
+ *   - pi's non-assistant requirement binds the *persisted projection* checked at
+ *     `turn_end`, not the provider request (register item 3).
  *   - The marker customType is deliberately stable: sessions created by earlier
  *     builds keep filtering correctly.
  */
@@ -48,6 +49,13 @@ interface SessionContext {
 
 /** Stable across versions: earlier sessions' markers must keep being stripped. */
 export const MARKER_TYPE = "todo-loop:continue";
+
+/**
+ * Constant body. The marker exists to keep the persisted history alternating and to
+ * give `turn_end` a non-assistant tail; it carries no counters, so a stale marker in
+ * history cannot claim the loop is on some other round.
+ */
+export const MARKER_BODY = "<todo_loop_continue/>";
 
 export const CONFIG_PATH = join(homedir(), ".pi/agent/todo-loop.json");
 const KILL_SWITCH_GLOBAL = join(homedir(), ".pi/agent/todo-loop-off");
@@ -100,24 +108,25 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 		if (!Array.isArray(event?.messages)) return undefined;
 
 		const original = event.messages as unknown[];
-		const withoutMarker = original.filter((message) => {
-			const record = message as Record<string, unknown>;
-			return record.customType !== MARKER_TYPE;
-		});
-
 		const config = loadConfig(configPath);
 		const snapshot = readSnapshot(branchEntries(ctx));
+		const injecting = config.injectState && snapshot.open.length > 0;
+		if (!injecting) return undefined;
 
-		// Every continuation marker is persisted, so they are stripped from every
-		// request — keeping them would grow the prefix by one user-role block per
-		// continuation for the rest of the session. The last marker is not needed
-		// as a tail: the state block below carries one when it is needed.
-		const base = withoutMarker.length === original.length ? undefined : { messages: withoutMarker };
-		if (!config.injectState || snapshot.open.length === 0) return base;
+		// The marker is persisted between assistant turns, so it is what keeps the
+		// history alternating: assistant → marker(user) → assistant. Stripping the
+		// historical ones would expose runs of consecutive assistant messages, which
+		// alternation-requiring providers reject. So markers stay in history; only a
+		// marker sitting at the tail (the continuation request about to be made) is
+		// replaced by the state block, so the request never ends on user → user.
+		const last = original.length - 1;
+		const tailIsMarker =
+			last >= 0 && (original[last] as Record<string, unknown> | null)?.customType === MARKER_TYPE;
+		const base = tailIsMarker ? original.slice(0, last) : original;
 
 		return {
 			messages: [
-				...withoutMarker,
+				...base,
 				{ role: "user", content: [{ type: "text", text: renderInjection(snapshot, config) }] },
 			],
 		};
@@ -158,7 +167,7 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 				{
 					type: "custom_message",
 					customType: MARKER_TYPE,
-					content: `<todo_loop n="${next.rounds}" open="${snapshot.open.length}"/>`,
+					content: MARKER_BODY,
 					display: false,
 				},
 			],

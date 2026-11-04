@@ -1,10 +1,10 @@
 /**
  * Documentation consistency.
  *
- * The tested-version discipline is prose in four files and nothing else can
- * notice a drift, so these cases pin the parts a reader would trust: the pi
- * snapshot constant, the verification date, the tested rpiv-todo version, and
- * the CHANGELOG entry for the published version.
+ * The ruledoc is prose in four files and nothing else can notice a drift, so
+ * these cases check the parts a reader would trust: the tested-version table,
+ * the invariant map, the reason table and the configuration table — against the
+ * code where the code is the source of truth.
  */
 
 import assert from "node:assert/strict";
@@ -22,6 +22,12 @@ const CHANGELOG = read("../CHANGELOG.md");
 const PACKAGE = JSON.parse(read("../package.json"));
 const VERIFIED_DATE = "2026-11-04";
 const TESTED_RPIV_TODO = "2.15.0";
+
+const isSeparator = (row: string): boolean =>
+	row
+		.split("|")
+		.slice(1, -1)
+		.every((cell) => /^:?-{2,}:?$/.test(cell.trim()));
 
 test("the pi snapshot constant appears in the README and the register", () => {
 	assert.ok(PI_API_SNAPSHOT.length > 0);
@@ -41,10 +47,7 @@ test("the tested rpiv-todo version is recorded in both places", () => {
 });
 
 test("the CHANGELOG documents the version in package.json", () => {
-	assert.ok(
-		CHANGELOG.includes(`## [${PACKAGE.version}]`),
-		`CHANGELOG has no entry for ${PACKAGE.version}`,
-	);
+	assert.ok(CHANGELOG.includes(`## [${PACKAGE.version}]`), `CHANGELOG has no entry for ${PACKAGE.version}`);
 });
 
 test("every README link target inside the repository exists", () => {
@@ -59,17 +62,23 @@ test("every test name the invariant map cites actually exists", () => {
 	const titles = new Set<string>();
 	for (const file of readdirSync(new URL("../test/", import.meta.url))) {
 		if (!file.endsWith(".test.ts")) continue;
-		const source = read(`../test/${file}`);
-		for (const match of source.matchAll(/test\("([^"]+)"/g)) titles.add(match[1]);
+		for (const match of read(`../test/${file}`).matchAll(/test\("([^"]+)"/g)) titles.add(match[1]);
 	}
 
-	const mapSection = AGENTS.slice(AGENTS.indexOf("## Invariant → test map"), AGENTS.indexOf("## Adding or changing"));
-	// Only the test column: rows look like `| invariant | test, test |`.
-	const cited = mapSection
+	const map = AGENTS.slice(AGENTS.indexOf("## Invariant → test map"), AGENTS.indexOf("## Adding or changing"));
+	const rows = map
 		.split("\n")
-		.filter((line) => line.startsWith("|") && line.split("|").length >= 4)
-		.flatMap((line) => [...line.split("|")[2].matchAll(/`([^`]+)`/g)].map((match) => match[1]));
-	assert.ok(cited.length > 10, "expected the map to cite tests");
+		.filter((line) => line.startsWith("|") && !line.startsWith("| Invariant") && !isSeparator(line));
+	assert.ok(rows.length > 8, `expected the invariant map, found ${rows.length} rows`);
+
+	const cited: string[] = [];
+	for (const row of rows) {
+		// A row that loses a pipe must fail here, not quietly drop out of the check.
+		assert.ok(row.includes("`"), `invariant-map row cites no test: ${row.slice(0, 80)}`);
+		const cells = row.split("|");
+		const cell = cells.length >= 4 ? cells[2] : cells.slice(1).join("|");
+		cited.push(...[...cell.matchAll(/`([^`]+)`/g)].map((match) => match[1]));
+	}
 
 	const missing = cited.filter((name) => !titles.has(name));
 	assert.deepEqual(missing, [], `invariant map cites tests that do not exist: ${missing.join(", ")}`);
@@ -77,32 +86,38 @@ test("every test name the invariant map cites actually exists", () => {
 
 test("every stop reason the code can report appears in the README table", () => {
 	const sources = [read("../src/loop.ts"), read("../src/index.ts")].join("\n");
-	const reasons = new Set<string>();
-	for (const match of sources.matchAll(/`(\$\{[^`]*\})?([a-z][a-z ]+:?[^`]*)`/g)) {
-		const literal = match[0].slice(1, -1).replace(/\$\{[^}]*\}/g, "");
-		if (literal.trim().length > 0) reasons.add(literal.trim());
+
+	// Reason templates from the source: the literal text before the first `${`.
+	const fragments = new Set<string>();
+	for (const match of sources.matchAll(/`([^`]*\$\{[^}]+\}[^`]*)`/g)) {
+		const head = match[1].split("${")[0].trim();
+		if (head.length >= 4) fragments.add(head);
 	}
-	const expected = [
-		"continuing: round",
-		"stopped: list is clear",
-		"stopped: no list",
-		"stopped: turn outcome was",
-		"stopped: round cap",
-		"stopped: ",
-		"paused by user",
-		"resumed by user",
-		"counters reset",
-	];
-	const missing = expected.filter((fragment) => !README.includes(fragment));
-	assert.deepEqual(missing, [], `README reason table is missing: ${missing.join(", ")}`);
+	for (const literal of ["idle", "paused by user", "resumed by user", "counters reset"]) {
+		if (sources.includes(`"${literal}"`)) fragments.add(literal);
+	}
+	assert.ok(fragments.size >= 6, `expected several reason fragments, found ${fragments.size}`);
+
+	const missing = [...fragments].filter((fragment) => !README.includes(fragment));
+	assert.deepEqual(missing, [], `README reason table is missing: ${missing.join(" | ")}`);
 });
 
-test("the README configuration table states the real defaults", () => {
+test("the README configuration table states every default, not just the numbers", () => {
 	for (const [key, value] of Object.entries(DEFAULTS)) {
-		if (typeof value !== "number") continue;
 		assert.ok(
 			README.includes(`| \`${key}\` | \`${value}\` |`),
-			`README default for ${key} does not match DEFAULTS (${value})`,
+			`README default for ${key} does not match DEFAULTS (${String(value)})`,
 		);
+	}
+});
+
+test("clamp ceilings in the README match the ones the code enforces", () => {
+	const config = read("../src/config.ts");
+	const ceilings = [...config.matchAll(/bounded\(record\.\w+, ([0-9_]+)\)/g)].map((match) =>
+		match[1].replace(/_/g, ""),
+	);
+	assert.ok(ceilings.length >= 3, `expected three clamp ceilings, found ${ceilings.length}`);
+	for (const ceiling of ceilings) {
+		assert.ok(README.includes(ceiling), `README does not state the clamp ceiling ${ceiling}`);
 	}
 });
