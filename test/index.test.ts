@@ -321,11 +321,38 @@ test("a queued human message followed by a marker does not survive as an adjacen
 });
 
 test("an aborted turn carrying tool results reports the stop and keeps the strike", async () => {
+	// Two settles first, so a strike is actually pending: a mutation that clears it
+	// before the outcome check must fail here.
 	const h = harness(branchWith([task(1, "pending")]));
-	await run(h, "turn_end", { outcome: "completed", toolResults: [], entries: [] });
+	const settle = { outcome: "completed", toolResults: [], entries: [] };
+	await run(h, "turn_end", settle);
+	await run(h, "turn_end", settle);
 	const aborted = await run(h, "turn_end", { outcome: "aborted", toolResults: [{ role: "toolResult" }], entries: [] });
 	assert.equal(aborted, undefined);
 	await h.commands.todoloop.handler("", h.ctx);
+	assert.match(h.notices.at(-1) as string, /rounds 2\/12 · strikes 1\/2/);
 	assert.match(h.notices.at(-1) as string, /last: stopped: turn outcome was aborted/);
-	assert.match(h.notices.at(-1) as string, /mode|todo-loop/);
+});
+
+test("a summary or shell-output tail is treated as user-role", async () => {
+	// pi projects compactionSummary, branchSummary and bashExecution to user-role
+	// messages. Missing them would put the block after a user message.
+	const h = harness(branchWith([task(1, "pending")]));
+	for (const role of ["compactionSummary", "branchSummary", "bashExecution", "custom"]) {
+		const result = await run(h, "context", {
+			messages: [{ role: "assistant", content: "a" }, { role, content: "summary text" }],
+		});
+		assert.equal(result.messages.length, 2, `${role} must be merged into, not followed`);
+		assert.equal(result.messages.at(-1).role, role);
+		assert.equal((result.messages.at(-1).content as unknown[]).length, 2);
+	}
+});
+
+test("a toolResult tail gets the block appended, not merged", async () => {
+	const h = harness(branchWith([task(1, "pending")]));
+	const result = await run(h, "context", {
+		messages: [{ role: "assistant", content: "a" }, { role: "toolResult", content: "r" }],
+	});
+	assert.equal(result.messages.length, 3);
+	assert.equal(result.messages.at(-2).role, "toolResult");
 });

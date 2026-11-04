@@ -42,6 +42,7 @@ export function loadConfig(path: string): LoopConfig {
 	try {
 		return mergeConfig(JSON.parse(readFileSync(path, "utf8")));
 	} catch {
-		return DEFAULTS;
+		// A fresh copy: the shared object must never be mutable by a caller.
+		return { ...DEFAULTS };
 	}
 }

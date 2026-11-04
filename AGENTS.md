@@ -78,6 +78,8 @@ adding a `CHANGELOG.md` line — all in the same commit.
 - **Only a settle spends a round.** `turn_end` fires for every assistant response, including one that
   ended in a tool call; those already cause pi's next request, so the hook returns before deciding. A
   round, a marker and a strike are therefore always about a turn that would have ended the run.
+- **A tool turn clears a strike and spends no round** — except a tool turn that ends `error`/`aborted`,
+  which records the stop and leaves the strike budget alone.
 - **A tool turn clears a strike and spends no round.** Tool turns already cause pi's next request, so
   they must not consume the budget; but they are work, so they reset `strikes`. Without that, a model
   that runs tools and never updates the list collects two strikes across its settles and stops claiming
@@ -132,7 +134,7 @@ introduces an edge.
 | a record with neither a label nor a status is not a task, and arrays are not tasks | `a record with neither a label nor a status is not a task`, `an array element is not a task` |
 | only a `todo` tool's own shapes are read | `a foreign custom entry or toolResult carrying tasks is ignored` |
 | an unknown status counts as open, and status text is normalised | `an unknown status counts as open, not as done`, `status is normalised, so a differently-cased value still closes` |
-| ids are made distinct, and a real id is never renumbered | `a positional id never shadows a real one`, `duplicate ids in the source are made distinct`, `a synthetic id never renumbers a real one, even when it comes first` |
+| ids are made distinct: a synthetic or colliding id moves to a free number, a unique real id is never renumbered | `a positional id never shadows a real one`, `duplicate ids in the source are made distinct`, `a synthetic id never renumbers a real one, even when it comes first` |
 | a task without a usable id falls back to its position | `a task without a usable id falls back to its position, not to being dropped`, `a null or empty id falls back to the position instead of colliding on 0` |
 | the newer shape wins, in either order | `the newer of a custom entry and a toolResult wins, in either order` |
 | the block is appended only when injecting, replacing a tail marker | `context strips the marker and appends the state block when tasks are open`, `a tail marker is replaced by the block, never followed by it`, `the block is appended when the tail is an assistant turn`, `the request never ends with two user-role messages` |
@@ -177,8 +179,8 @@ Ranked by how easily a small change breaks them.
    with the same newest user entry keeps the spent budget — deliberate, so a fork cannot refill it.
 4. **State shape drift in the todo tool.** Both shapes are read defensively; keep `normalizeTask`
    tolerant of renamed fields (`content` vs `subject`) and of unusable ids, and keep `withUniqueIds` in
-   `snapshotFrom` — it moves only synthetic or colliding ids, never one the payload supplied, because
-   that number is what the model must use to update the task.
+   `snapshotFrom` — it moves only synthetic or *colliding* ids, never a unique one the payload supplied,
+   because that number is what the model must use to update the task.
 5. **Branch walking.** The reader stops once it holds a list in *either* shape and the anchor. It walks
    newest-first, so a toolResult newer than the custom entry is already in hand; the extra walking is to
    reach the anchor, which is older than the newest list entry. Breaking out on the list alone leaves

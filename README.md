@@ -11,7 +11,8 @@ still has open tasks, and keeps that list in front of the model across compactio
 and stores the list; it never asks pi for another turn. This adds the turn.
 
 It continues what the list says — it cannot tell a stale list from a finished one, so it needs a list
-the model actually maintains.
+the model actually maintains. It buys *liveness*, not work: a model can satisfy the loop by closing
+tasks, including deleting placeholders it never intended to do.
 
 ## Example
 
@@ -130,13 +131,16 @@ After a **settle** — a response that made no tool call — while tasks are ope
 todo-loop active
 rounds 1/12 · strikes 0/2
 open 2/5 tracked · inject on
+anchor 4f3c1a2e
 last: continuing: round 1/12, 2 open
 config ~/.pi/agent/todo-loop.json
 ```
 
-`strikes` reads `1/2` after a settle that left the list unchanged. A turn that ended in a tool call
-resets `strikes` to `0` and changes nothing else: `rounds` stays where it was, `last:` keeps its
-previous value, no marker is written.
+`strikes` reads `1/2` after the **second** consecutive settle that left the list unchanged: the first
+settle under a human message always counts as progress (it still spends a round). A `completed` turn that
+ended in a tool call resets `strikes` to `0` and changes nothing else — `rounds` stays, `last:` keeps its
+previous value, no marker is written. A tool turn that ends `error` or `aborted` instead reports
+`last: stopped: turn outcome was …` and clears no strike.
 
 To count continuations in the session file:
 
@@ -185,7 +189,7 @@ cannot defeat the cap it configures.
 
 | Command | Effect |
 |---|---|
-| `/todoloop` | status: mode, rounds, strikes, open count, why it last stopped, config path |
+| `/todoloop` | status: mode, rounds, strikes, open count, the anchor it is tracking (`#<position>` when that message carried no id, `(none)` before any), why it last stopped, config path |
 | `/todoloop pause` | stop continuing until you resume or restart |
 | `/todoloop resume` | allow the next settle to continue again |
 | `/todoloop reset` | clear the round and strike counters and forget the list signature |
@@ -214,8 +218,14 @@ touch .pi/todo-loop-off             # this project
 - **The task list is injected on every request** while tasks are open, as a `<todo_loop_state>` block:
   open tasks with ids and statuses, plus an instruction to work the list rather than ask whether to
   continue. It is not persisted, so compaction cannot remove it.
+- **The ids in the block are the todo tool's own**, except where the stored list supplies an unusable or
+  duplicate id: that row is moved to a free number so each row can be addressed separately, which means a
+  `todo` call using the shown number can fail when the tool wrote the list that way.
 - **With the kill switch set, nothing is rewritten at all.** Markers already in the session then reach
   the model as one short user-role line each, exactly as they do in any non-injecting request.
+- **With `injectState: false` the only continuation signal the model sees is that bare
+  `<todo_loop_continue/>` line** — no instruction and no task list. That is the configuration to pick if
+  you would rather the model call the todo tool itself than be told what to do.
 - **The injected block is the last thing in the request.** It is user-role text, so it competes with
   your own newest message: while tasks are open the model is told the list is authoritative. That is
   why it is one bounded paragraph, and why `injectState: false` exists.
@@ -245,10 +255,13 @@ touch .pi/todo-loop-off             # this project
 
 ## Cost and limits
 
-- A continuation is a normal model turn: the whole conversation is sent again, so cost scales with
-  `maxRounds` × session size. That, not the block, is the dominant term.
-- Each hook call — once in `context`, once in `turn_end` — reads the config, probes the kill switch and
-  walks the branch. While tasks are open, the block adds ~100 tokens at the tail. `injectState: false`
+- A continuation is a normal model turn: the whole conversation is sent again, so cost scales with the
+  number of continuations × session size. `maxRounds` caps continuations, not turns — tool turns are
+  pi's own and unbounded, so a long tool-heavy stretch can be many turns for one round. That, not the
+  block, is the dominant term.
+- Each hook call — once in `context`, once in `turn_end` — reads the config and probes the kill switch;
+  unless `injectState` is off (or the extension is disabled or paused), it also walks the branch once.
+  While tasks are open, the block adds ~100 tokens at the tail. `injectState: false`
   adds no block at all and leaves the model to call the todo tool's `list` action.
 - Returning a changed message list makes pi rebuild the request head from the current prompt and tool
   state, which is lossless but means the head is not byte-identical to the previous request. That is

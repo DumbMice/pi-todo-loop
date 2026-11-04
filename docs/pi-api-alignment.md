@@ -111,3 +111,9 @@ full. Items that produce no signal in the transcript are marked _(silent)_.
     the cap; the cost of the broad skip is that such a message does not reset the budget either. That is
     one budget for one message, self-healing on the next plain message and visible in
     `/todoloop`'s `anchor` line.
+
+14. **The loop's counters are not reconstructible from the session file** _(silent)_. The hook is handed
+    `outcome`, `entries` and `continue`, but the `turn_end` event pi persists for a `-p`/JSON run carries
+    only `{type, message, toolResults}`. A session file therefore shows which continuations happened and
+    when, not how many rounds or strikes were left, nor why the loop stopped; that is only visible live
+    through `/todoloop`. Two runs that end for different reasons can look identical on disk.

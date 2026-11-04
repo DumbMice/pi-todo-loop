@@ -126,12 +126,15 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 		const record = (message: unknown): Record<string, unknown> | null =>
 			typeof message === "object" && message !== null ? (message as Record<string, unknown>) : null;
 		const isMarker = (message: unknown): boolean => record(message)?.customType === MARKER_TYPE;
+		// pi projects every role except these to a user-role message in the request:
+		// `custom`, `bashExecution`, `branchSummary`, `compactionSummary`, and plain
+		// `user`. Anything else is user-role for the purpose of alternation, so the test
+		// is a whitelist of non-user roles — the direction that merges rather than
+		// appending a second user message.
+		const NON_USER_ROLES = new Set(["assistant", "toolResult", "system", "tool"]);
 		const isUserRole = (message: unknown): boolean => {
-			const entry = record(message);
-			if (entry === null) return false;
-			// A custom_message projects to a user-role message; anything else is user
-			// only when its role says so.
-			return typeof entry.customType === "string" ? entry.role !== "assistant" : entry.role === "user";
+			const role = record(message)?.role;
+			return typeof role === "string" && !NON_USER_ROLES.has(role);
 		};
 
 		// A marker only earns its place *between* two assistant turns, where it is the
