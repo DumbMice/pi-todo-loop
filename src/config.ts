@@ -13,18 +13,22 @@ function coerce(raw: unknown): Partial<LoopConfig> {
 	const record = raw as Record<string, unknown>;
 	const out: Partial<LoopConfig> = {};
 
-	const positive = (value: unknown): number | undefined =>
-		typeof value === "number" && Number.isFinite(value) && value >= 1 ? Math.floor(value) : undefined;
+	// Clamped, not just validated: a hostile or typo'd config must not be able to
+	// defeat the caps it configures (`maxRounds: 1e9` would otherwise be honoured).
+	const bounded = (value: unknown, ceiling: number): number | undefined =>
+		typeof value === "number" && Number.isFinite(value) && value >= 1
+			? Math.min(Math.floor(value), ceiling)
+			: undefined;
 
-	const maxRounds = positive(record.maxRounds);
+	const maxRounds = bounded(record.maxRounds, 1_000);
 	if (maxRounds !== undefined) out.maxRounds = maxRounds;
 
-	const maxStrikes = positive(record.maxStrikes);
+	const maxStrikes = bounded(record.maxStrikes, 100);
 	if (maxStrikes !== undefined) out.maxStrikes = maxStrikes;
 
 	if (typeof record.injectState === "boolean") out.injectState = record.injectState;
 
-	const maxInjectedTasks = positive(record.maxInjectedTasks);
+	const maxInjectedTasks = bounded(record.maxInjectedTasks, 50);
 	if (maxInjectedTasks !== undefined) out.maxInjectedTasks = maxInjectedTasks;
 
 	return out;

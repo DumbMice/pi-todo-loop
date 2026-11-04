@@ -55,3 +55,16 @@ test("injection tolerates an empty subject", () => {
 	const snapshot = snapshotFrom([{ id: 1, subject: "", status: "pending" }]);
 	assert.match(renderInjection(snapshot, DEFAULTS), /\(untitled\)/);
 });
+
+test("numbers are clamped so a typo cannot defeat the cap it configures", () => {
+	const merged = mergeConfig({ maxRounds: 1e9, maxStrikes: 1e9, maxInjectedTasks: 1e9 });
+	assert.equal(merged.maxRounds, 1000);
+	assert.equal(merged.maxStrikes, 100);
+	assert.equal(merged.maxInjectedTasks, 50);
+});
+
+test("a value below 1 is treated as invalid, not as zero", () => {
+	const merged = mergeConfig({ maxRounds: 0, maxStrikes: 0 });
+	assert.equal(merged.maxRounds, DEFAULTS.maxRounds);
+	assert.equal(merged.maxStrikes, DEFAULTS.maxStrikes);
+});

@@ -17,7 +17,7 @@ Initial release.
 - Per-request injection of the authoritative open-task list through the `context` hook,
   never persisted, closing the post-compaction context hole
   ([rpiv-mono#222](https://github.com/juicesharp/rpiv-mono/issues/222)) and the "model
-  never calls `list`" failure ([rpiv-mono#159](https://github.com/juicesharp/rpiv-mono/issues/159)).
+  never calls the todo tool's `list` action" failure ([rpiv-mono#159](https://github.com/juicesharp/rpiv-mono/issues/159)).
 - Hidden continuation marker (`custom_message`, `display: false`, 27-character body) that
   is stripped from the provider request on the path that appends the state block. When
   `injectState` is false, when no task is open, or when the kill switch is set, the marker

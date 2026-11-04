@@ -63,8 +63,9 @@ export interface Decision {
 /**
  * A stop keeps the counters. Only a new human message starts a new budget: a cap
  * or strike stop that cleared them would re-arm the full budget on the next
- * `turn_end` under the same anchor (another extension's continuation, a queued
- * message, a provider retry).
+ * `turn_end` under the same anchor (another extension's continuation, a provider
+ * retry). A queued human message is a new anchor by definition, so it resets the
+ * budget the ordinary way.
  */
 function stop(state: LoopState, reason: string): Decision {
 	return { continue: false, next: { ...state }, reason };

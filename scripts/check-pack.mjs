@@ -1,0 +1,46 @@
+#!/usr/bin/env node
+/**
+ * Verify the published tarball actually contains what the package promises.
+ *
+ * `npm pack --dry-run` prints a file list and exits 0 even when `files` matches
+ * nothing, so dropping "src" from the manifest used to pass CI while shipping a
+ * package whose `pi.extensions` entry point does not exist. This asserts the
+ * entry point, the docs and the licence are in the tarball.
+ */
+
+import { execFileSync } from "node:child_process";
+
+const REQUIRED = [
+	"src/index.ts",
+	"src/loop.ts",
+	"src/state.ts",
+	"src/inject.ts",
+	"src/config.ts",
+	"README.md",
+	"AGENTS.md",
+	"CHANGELOG.md",
+	"LICENSE",
+];
+
+const raw = execFileSync("npm", ["pack", "--dry-run", "--json"], { encoding: "utf8" });
+const [tarball] = JSON.parse(raw);
+const files = new Set(tarball.files.map((file) => file.path));
+
+const missing = REQUIRED.filter((path) => !files.has(path));
+if (missing.length > 0) {
+	console.error(`pack check failed — missing from the tarball:\n  ${missing.join("\n  ")}`);
+	const sample = [...files].slice(0, 20).join("\n  ");
+	console.error(`\nfiles present (${files.size}):\n  ${sample}`);
+	process.exit(1);
+}
+
+const entry = JSON.parse(execFileSync("node", ["-p", "JSON.stringify(require('./package.json').pi)"], { encoding: "utf8" }));
+for (const declared of entry.extensions ?? []) {
+	const path = declared.replace(/^\.\//, "");
+	if (!files.has(path)) {
+		console.error(`pack check failed — pi.extensions declares ${path}, which is not in the tarball`);
+		process.exit(1);
+	}
+}
+
+console.log(`pack ok: ${files.size} files, entry point and docs present`);

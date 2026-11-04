@@ -7,7 +7,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -99,31 +99,63 @@ test("context strips the marker and appends the state block when tasks are open"
 	assert.match(text, /2 tracked task\(s\) are still open/);
 });
 
-test("context keeps the marker when the list is clear", async () => {
+test("context strips earlier markers when the list is clear, and appends nothing", async () => {
 	const h = harness(branchWith([task(1, "completed")]));
 	const result = await run(h, "context", {
-		messages: [{ role: "user", customType: MARKER_TYPE, content: "marker" }],
+		messages: [
+			{ role: "user", content: "go" },
+			{ role: "user", customType: MARKER_TYPE, content: "<todo_loop n=\"1\" open=\"2\"/>" },
+			{ role: "assistant", content: "done" },
+			{ role: "user", customType: MARKER_TYPE, content: "<todo_loop n=\"2\" open=\"1\"/>" },
+			{ role: "assistant", content: "all clear" },
+		],
 	});
-	assert.equal(result, undefined, "an untouched list is returned as-is, marker included");
+
+	assert.ok(result?.messages, "persisted markers must be stripped even when nothing is injected");
+	assert.deepEqual(
+		result.messages.map((message: any) => message.role),
+		["user", "assistant", "assistant"],
+		"every marker is gone, including the last one",
+	);
 });
 
-test("context keeps the marker when injection is disabled", async () => {
+test("context strips markers and appends no block when injection is disabled", async () => {
 	const h = harness(branchWith([task(1, "pending")]), { injectState: false });
 	const result = await run(h, "context", {
 		messages: [{ role: "user", customType: MARKER_TYPE, content: "marker" }],
 	});
-	assert.equal(result, undefined);
+	assert.deepEqual(result?.messages, [], "the marker is still removed");
 });
 
-test("the kill switch disables both hooks", async () => {
+test("context leaves a malformed payload alone instead of rewriting it", async () => {
+	const h = harness(branchWith([task(1, "pending")]));
+	for (const payload of [{}, { messages: null }, { messages: "nope" }]) {
+		assert.equal(await run(h, "context", payload), undefined);
+	}
+});
+
+test("the global kill switch disables both hooks", async () => {
 	const h = harness(branchWith([task(1, "pending")]));
 	writeFileSync(h.options.killSwitchGlobal, "");
 
-	const context = await run(h, "context", { messages: [] });
-	assert.equal(context, undefined);
+	assert.equal(await run(h, "context", { messages: [] }), undefined);
+	assert.equal(
+		await run(h, "turn_end", { outcome: "completed", toolResults: [], entries: [] }),
+		undefined,
+		"no continuation while disabled",
+	);
+});
 
-	const turnEnd = await run(h, "turn_end", { outcome: "completed", toolResults: [], entries: [] });
-	assert.equal(turnEnd, undefined, "no continuation while disabled");
+test("the project-local kill switch disables both hooks", async () => {
+	const h = harness(branchWith([task(1, "pending")]));
+	mkdirSync(join(h.ctx.cwd, ".pi"), { recursive: true });
+	writeFileSync(join(h.ctx.cwd, ".pi", "off-local"), "");
+
+	assert.equal(await run(h, "context", { messages: [] }), undefined);
+	assert.equal(
+		await run(h, "turn_end", { outcome: "completed", toolResults: [{ role: "toolResult" }], entries: [] }),
+		undefined,
+	);
 });
 
 test("turn_end requests one turn with a hidden marker when work is open", async () => {
@@ -136,6 +168,8 @@ test("turn_end requests one turn with a hidden marker when work is open", async 
 
 	assert.equal(result?.continue, true);
 	const appended = result.entries.at(-1);
+	assert.equal(appended.type, "custom_message", "pi's boundary needs a non-assistant tail entry");
+	assert.notEqual(appended.role, "assistant");
 	assert.equal(appended.customType, MARKER_TYPE);
 	assert.equal(appended.display, false, "the marker must never render");
 	assert.equal(result.entries.length, 2, "existing proposals are preserved");

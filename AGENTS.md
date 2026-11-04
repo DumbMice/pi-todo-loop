@@ -58,13 +58,16 @@ adding a `CHANGELOG.md` line — all in the same commit.
   Do not try to reach zero entries; keep the single `custom_message` with `display: false`.
 - **The marker `customType` is a stable literal.** Sessions recorded by earlier builds must keep
   filtering; do not derive it from the package name or version.
-- **State is read from the branch on every request.** No in-memory cache, no `session_compact`
-  resync handler. Memory would drift across forks and compaction; the walk is cheap.
+- **Task state is read from the branch on every request.** No in-memory cache of the list, no
+  `session_compact` resync handler: memory would drift across forks and compaction. Loop state
+  (counters, anchor, pause) *is* in memory, and a restart necessarily starts a new budget.
 - **The decision is a pure function.** `decide()` in `src/loop.ts` takes a value and returns a value.
   It must stay free of pi, filesystem and time so the caps can be tested exhaustively.
 - **A stop keeps the counters; only a new human message resets them.** Clearing `rounds` / `strikes` on
   stop re-arms a full budget on the next `turn_end` under the same anchor (another extension's
-  continuation, a queued message, a provider retry). The anchor comparison is the only reset.
+  continuation, a provider retry). The anchor comparison is the only *automatic* reset;
+  `/todoloop reset` and process start clear the counters explicitly. A queued human message is a
+  new anchor, so it resets the budget the ordinary way.
 - **Open means "not finished".** `CLOSED_STATUSES` is an exclusion list (`completed`, `deleted`), not an
   allow-list: a status the todo tool adds later must not make a task vanish and the loop report the
   list clear while work remains.
@@ -98,24 +101,24 @@ introduces an edge.
 | a list change resets strikes even with no tool call | `a list change counts as progress even with no tool results` |
 | the round cap stops the loop | `round cap stops the loop`, `config caps are honoured` |
 | a new human message resets the budget | `a new human message resets the budget` |
-| a stop clears counters but keeps the anchor | `a stop clears the counters but keeps the anchor` |
+| a stop keeps the counters, so the cap stays shut for the same anchor | `a stop keeps the counters, so a cap stays shut for the same anchor`, `a new human message after a stop starts a fresh budget` |
 | the newest custom entry wins over older ones | `reads the newest rpiv-todo custom entry` |
 | the toolResult fallback works and loses to the custom entry | `falls back to todo toolResult details`, `prefers the custom entry over the toolResult fallback` |
-| the anchor is the newest human message, not assistant or toolResult | `anchor is the newest human message id, ignoring assistant and toolResult` |
+| the anchor is the newest human message: not assistant, toolResult, or our own marker | `anchor is the newest human message id, ignoring assistant and toolResult`, `our own projected marker never becomes the anchor`, `a user message without an id anchors on its position` |
 | `deleted` tasks leave list, open set and signature | `deleted tasks are excluded from tasks, open and signature` |
 | malformed entries degrade to the empty snapshot | `malformed or missing state degrades to the empty snapshot` |
 | config defaults survive garbage; fields are coerced | `missing or malformed config falls back to defaults`, `valid fields override, invalid ones are ignored` |
 | the injection shows open tasks only, bounded, `activeForm` for in_progress | `injection lists open tasks with their status`, `injection is bounded and reports the overflow`, `injection uses activeForm only for in_progress`, `injection tolerates an empty subject` |
 | a status change moves the signature | `signature changes when a status changes` |
-| an unknown status counts as open | `an unknown status counts as open, not as done` |
-| a task without a usable id falls back to its position | `a task without a usable id falls back to its position, not to being dropped` |
+| an unknown status counts as open, and status text is normalised | `an unknown status counts as open, not as done`, `status is normalised, so a differently-cased value still closes` |
+| a task without a usable id falls back to its position | `a task without a usable id falls back to its position, not to being dropped`, `a null or empty id falls back to the position instead of colliding on 0` |
 | the newer shape wins, in either order | `the newer of a custom entry and a toolResult wins, in either order` |
-| marker stripped ⇔ block appended | `context strips the marker and appends the state block when tasks are open`, `context keeps the marker when the list is clear`, `context keeps the marker when injection is disabled` |
-| the kill switch disables both hooks | `the kill switch disables both hooks` |
-| a continuation appends one hidden marker and preserves prior proposals | `turn_end requests one turn with a hidden marker when work is open` |
+| every marker is stripped from every request; the block is appended only when injecting | `context strips the marker and appends the state block when tasks are open`, `context strips earlier markers when the list is clear, and appends nothing`, `context strips markers and appends no block when injection is disabled`, `context leaves a malformed payload alone instead of rewriting it` |
+| either kill switch disables both hooks | `the global kill switch disables both hooks`, `the project-local kill switch disables both hooks` |
+| a continuation appends one hidden `custom_message` with `display: false` and preserves prior proposals | `turn_end requests one turn with a hidden marker when work is open` |
 | a malformed event payload does not throw | `turn_end tolerates a malformed event payload instead of throwing` |
 | the cap and pause gate the loop at the hook level | `the round cap is sticky for one human message`, `pause and resume gate the loop` |
-| the tested-version table is coherent | `the pi snapshot constant appears in the README and the register`, `the verification date appears in the README and the register`, `the tested rpiv-todo version is recorded in both places`, `the CHANGELOG documents the version in package.json`, `every README link target inside the repository exists` |
+| the docs match the code | `the pi snapshot constant appears in the README and the register`, `the verification date appears in the README and the register`, `the tested rpiv-todo version is recorded in both places`, `the CHANGELOG documents the version in package.json`, `every README link target inside the repository exists`, `every test name the invariant map cites actually exists`, `every stop reason the code can report appears in the README table`, `the README configuration table states the real defaults` |
 
 ## Adding or changing a continuation rule
 

@@ -54,10 +54,16 @@ export function normalizeTask(value: unknown, index = 0): Task | undefined {
 			: typeof record.content === "string"
 				? record.content
 				: "";
+	// `Number(null)`, `Number("")` and `Number([])` are all 0, which would collapse
+	// every unusable id onto one task; only strings and numbers are ids.
+	const usableId =
+		(typeof record.id === "string" && record.id.trim() !== "") || typeof record.id === "number";
 	return {
-		id: Number.isInteger(id) && id >= 0 ? id : index,
+		id: usableId && Number.isInteger(id) && id >= 0 ? id : index,
 		subject,
-		status: typeof record.status === "string" ? record.status : "pending",
+		// Fail-open (see isOpen) makes status matching load-bearing, so normalise it:
+		// "Completed " from another tool must not read as open forever.
+		status: typeof record.status === "string" ? record.status.trim().toLowerCase() : "pending",
 		...(typeof record.activeForm === "string" ? { activeForm: record.activeForm } : {}),
 	};
 }
@@ -106,7 +112,12 @@ function anchorFromEntry(entry: Record<string, unknown>, index: number): string 
 	if (entry.type !== "message") return undefined;
 	const message = entry.message as Record<string, unknown> | undefined;
 	if (message?.role !== "user") return undefined;
-	return String(entry.id ?? `#${index}`);
+	// If pi ever materialises a custom_message as a plain user message, our own
+	// marker must not become the anchor: it changes every round and would reset
+	// the budget on every continuation.
+	if (typeof message.customType === "string") return undefined;
+	const id = entry.id;
+	return typeof id === "string" && id !== "" ? id : `#${index}`;
 }
 
 /**
@@ -147,7 +158,7 @@ export function readSnapshot(entries: readonly unknown[]): Snapshot {
 			}
 		}
 
-		if (custom !== undefined && anchor !== "") break;
+		if ((custom !== undefined || fallback !== undefined) && anchor !== "") break;
 	}
 
 	const newest =

@@ -136,3 +136,45 @@ test("the newer of a custom entry and a toolResult wins, in either order", () =>
 		["from tool"],
 	);
 });
+
+test("status is normalised, so a differently-cased value still closes", () => {
+	const snapshot = readSnapshot([
+		customEntry([
+			{ id: 1, subject: "trailing space", status: "Completed " },
+			{ id: 2, subject: "upper", status: "DELETED" },
+			{ id: 3, subject: "open", status: "Pending" },
+		]),
+	]);
+	assert.deepEqual(
+		snapshot.open.map((t) => t.id),
+		[3],
+	);
+	assert.equal(snapshot.tasks[0].status, "completed");
+});
+
+test("a null or empty id falls back to the position instead of colliding on 0", () => {
+	const snapshot = readSnapshot([
+		customEntry([
+			{ id: null, subject: "a", status: "pending" },
+			{ id: "", subject: "b", status: "pending" },
+			{ id: 7, subject: "c", status: "pending" },
+		]),
+	]);
+	assert.deepEqual(
+		snapshot.tasks.map((t) => t.id),
+		[0, 1, 7],
+	);
+});
+
+test("our own projected marker never becomes the anchor", () => {
+	const branch = [
+		{ type: "message", id: "human-1", message: { role: "user", content: "go" } },
+		{ type: "message", id: "marker-1", message: { role: "user", customType: "todo-loop:continue", content: "x" } },
+	];
+	assert.equal(readSnapshot(branch).anchor, "human-1");
+});
+
+test("a user message without an id anchors on its position", () => {
+	const branch = [{ type: "message", message: { role: "user", content: "go" } }];
+	assert.equal(readSnapshot(branch).anchor, "#0");
+});

@@ -25,22 +25,25 @@ full. Items that produce no signal in the transcript are marked _(silent)_.
    projection must end on a message whose role is not `assistant` — otherwise the boundary reports an
    invalid continuation and drops it. pi offers no `resume()` that appends nothing, so a continuation
    is always expressed as *one* appended entry. We append a `custom_message` with `display: false`:
-   invisible in the TUI, ~40 characters in the journal _(silent in the transcript)_.
-2. **The marker is stripped on the path that appends the state block.** The `context` hook removes any
-   message whose `customType` is `todo-loop:continue` before serialization — but only when it also
-   appends the block. When `injectState` is false, when no tasks are open, or when the kill switch is
-   set, the hook returns no rewrite at all: the marker stays in the request and the model reads it.
-   Item 4 states that path.
-3. **Stripping the marker alone would be wrong.** Removing it leaves the request ending on an
-   assistant message. pi's own boundary rejects that as an invalid continuation
-   (`_buildBoundaryContext().canContinue`), and some providers reject an assistant tail independently.
-   Whenever the marker is stripped, the authoritative task block is appended as a user-role message, so
-   the tail is never assistant. The two operations are coupled by construction; do not implement one
-   without the other.
-4. **With `injectState: false` the marker is kept rather than stripped.** The marker then carries the
-   continuation and the tail, at the cost of the model seeing `<todo_loop n="1" open="2"/>`
-   _(silent in the TUI, visible in context)_.
-5. **State is read from the branch on every request, not cached in memory.** No `session_compact`
+   invisible in the TUI, about 120 bytes per continuation in the journal _(silent in the transcript)_.
+2. **Every marker is stripped from every request.** Markers are persisted, one per continuation, so the
+   `context` hook removes every message whose `customType` is `todo-loop:continue` before
+   serialization — not only the newest one. Leaving them in would grow the request prefix by one
+   user-role block per continuation for the rest of the session, and the model would read `n="k"`
+   markers implying the loop is still running. With the kill switch set the hook does nothing at all,
+   because a disabled extension must not rewrite the request.
+3. **Two different tails are in play, and only one of them is constrained.** pi's boundary checks the
+   *persisted projection* when `turn_end` proposes `continue: true`; the appended marker is what makes
+   that projection end non-assistant (`_buildBoundaryContext().canContinue`). The *provider request*
+   built by the `context` hook is a different list, and it may legitimately end on the assistant
+   message — that is a normal continuation of the assistant turn, and it is the mechanism used by
+   pi-invisible-continue's `/continue`. Conflating the two is the mistake this item exists to prevent.
+4. **With `injectState: false` the marker is stripped and nothing replaces it.** The request then ends
+   on the assistant message, which is accepted by the providers tested here; the model receives no
+   `todo_loop_state` block and must call the todo tool's `list` action to learn the list. This is the
+   one configuration where the extension asks the model for compliance instead of enforcing state.
+5. **Task state is read from the branch on every request, not cached in memory.** Loop state (counters,
+   anchor, pause) is in memory and therefore resets with the process. No `session_compact`
    resync handler is needed, and a branch switch cannot leak another branch's tasks. The cost is one
    backward walk of the active branch per request.
 6. **The marker `customType` is a stable literal, not a constant keyed to the package version.**

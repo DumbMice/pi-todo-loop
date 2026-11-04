@@ -95,7 +95,11 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 
 	pi.on("context", async (event: any, ctx: SessionContext) => {
 		if (isDisabled(ctx)) return undefined;
-		const original = Array.isArray(event.messages) ? (event.messages as unknown[]) : [];
+		// A hook that rewrites an unknown payload into a one-message request is
+		// worse than doing nothing; leave the request alone.
+		if (!Array.isArray(event?.messages)) return undefined;
+
+		const original = event.messages as unknown[];
 		const withoutMarker = original.filter((message) => {
 			const record = message as Record<string, unknown>;
 			return record.customType !== MARKER_TYPE;
@@ -104,10 +108,12 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 		const config = loadConfig(configPath);
 		const snapshot = readSnapshot(branchEntries(ctx));
 
-		if (!config.injectState || snapshot.open.length === 0) {
-			// Keep the marker: it is what keeps the request off an assistant tail.
-			return undefined;
-		}
+		// Every continuation marker is persisted, so they are stripped from every
+		// request — keeping them would grow the prefix by one user-role block per
+		// continuation for the rest of the session. The last marker is not needed
+		// as a tail: the state block below carries one when it is needed.
+		const base = withoutMarker.length === original.length ? undefined : { messages: withoutMarker };
+		if (!config.injectState || snapshot.open.length === 0) return base;
 
 		return {
 			messages: [
@@ -122,10 +128,10 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 
 		const config = loadConfig(configPath);
 		const snapshot = readSnapshot(branchEntries(ctx));
-		const toolResultCount = Array.isArray(event.toolResults) ? event.toolResults.length : 0;
+		const toolResultCount = Array.isArray(event?.toolResults) ? event.toolResults.length : 0;
 
 		const decision = decide({
-			outcome: String(event.outcome),
+			outcome: String(event?.outcome),
 			toolResultCount,
 			signature: snapshot.signature,
 			openCount: snapshot.open.length,
@@ -143,7 +149,7 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 		// Build the proposal before committing the counters: a throw here (or a
 		// proposal pi rejects) must not leave `/todoloop` reporting a round that
 		// never happened.
-		const entries = Array.isArray(event.entries) ? (event.entries as unknown[]) : [];
+		const entries = Array.isArray(event?.entries) ? (event.entries as unknown[]) : [];
 		const next = decision.next;
 		const proposal = {
 			continue: true,
@@ -171,18 +177,18 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 			if (command === "pause") {
 				state.paused = true;
 				state.reason = "paused by user";
-				ctx.ui.notify("todo-loop: paused in this session", "info");
+				ctx.ui?.notify?.("todo-loop: paused in this session", "info");
 				return;
 			}
 			if (command === "resume") {
 				state.paused = false;
 				state.reason = "resumed by user";
-				ctx.ui.notify("todo-loop: resumed", "info");
+				ctx.ui?.notify?.("todo-loop: resumed", "info");
 				return;
 			}
 			if (command === "reset") {
 				Object.assign(state, initialState(), { paused: state.paused, reason: "counters reset" });
-				ctx.ui.notify("todo-loop: counters reset", "info");
+				ctx.ui?.notify?.("todo-loop: counters reset", "info");
 				return;
 			}
 
@@ -192,7 +198,7 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 				: state.paused
 					? "PAUSED"
 					: "active";
-			ctx.ui.notify(
+			ctx.ui?.notify?.(
 				[
 					`todo-loop ${mode}`,
 					`rounds ${state.rounds}/${config.maxRounds} · strikes ${state.strikes}/${config.maxStrikes}`,
