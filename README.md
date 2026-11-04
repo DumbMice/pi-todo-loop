@@ -1,105 +1,74 @@
 # pi-todo-loop
 
-Continuation for [pi](https://github.com/earendil-works/pi-coding-agent) driven by an
-[`@juicesharp/rpiv-todo`](https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-todo) list.
+[![npm version](https://img.shields.io/npm/v/pi-todo-loop)](https://www.npmjs.com/package/pi-todo-loop)
+[![license](https://img.shields.io/npm/l/pi-todo-loop)](https://github.com/DumbMice/pi-todo-loop/blob/main/LICENSE)
+[![node](https://img.shields.io/node/v/pi-todo-loop)](https://github.com/DumbMice/pi-todo-loop/blob/main/package.json)
+[![tests](https://github.com/DumbMice/pi-todo-loop/actions/workflows/test.yml/badge.svg)](https://github.com/DumbMice/pi-todo-loop/actions/workflows/test.yml)
 
-While the list still has open tasks, pi keeps working instead of handing back control.
-The list is also injected at the tail of every request, so it survives compaction and a
-model that never thinks to call `list`.
+An extension for the [pi coding agent](https://pi.dev) that keeps the agent working while an
+[`@juicesharp/rpiv-todo`](https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-todo) list
+still has open tasks, and keeps that list in front of the model across compaction. `rpiv-todo` renders
+and stores the list; it never asks pi for another turn. This adds the turn.
 
+## Example
+
+```text
+you:  make the whole sequence web-editable, then expose it in the browser
+      rpiv-todo: 12 tasks, first marked in_progress
+
+pi:   T5 backend is in and verified; committing a report of the state …
+      ← normally the run ends here. Two tasks are still open, so pi-todo-loop
+        requests one more turn; the list is injected at the tail of the request.
+
+pi:   T6 audio/face lanes wired. T7 per-camera PNG export next …
+      ← tasks updated as it goes, so the loop keeps going
+
+pi:   All 12 tasks are complete. Everything below is verified: …
+      ← list is clear → the loop stops and stays stopped
 ```
-you:  make the whole sequence web-editable …          → 12 tasks created
-pi:   T5 backend is in and verified; committing …      ← would normally stop here
-      (nudged, 2 tasks still open)
-pi:   T6 audio lanes wired, T7 export …                ← continues
-      (all tasks completed)
-      done.                                             ← stops
-```
 
-## Why this exists
+## When to use it
 
-`rpiv-todo` is a display: it renders the list and stores it. It never asks pi for another
-turn. That shows up as three filed issues on the rpiv tracker:
+- Long, multi-step work where the agent tends to summarise and hand back control halfway.
+- Sessions that get compacted: the list survives in the session branch, but the **model** loses it,
+  because the snapshot lives in entry `details` and pi does not send that to the LLM.
+- Models that need reminding to keep a task list current — see
+  [rpiv-mono#259](https://github.com/juicesharp/rpiv-mono/issues/259), where DeepSeek models display a
+  list but never update it.
 
-| Issue | Symptom this extension closes |
-|---|---|
-| [#159](https://github.com/juicesharp/rpiv-mono/issues/159) | no stale/reminder mechanism — a task sat `in_progress` for **507 messages**; longest gap between two `todo` calls: **1,126 messages** |
-| [#222](https://github.com/juicesharp/rpiv-mono/issues/222) | post-compaction context hole — the snapshot lives in entry `details`, which pi does **not** send to the LLM, so after compaction the model cannot see a list that still renders on screen |
-| [#259](https://github.com/juicesharp/rpiv-mono/issues/259) | "looks dumb with deepseek models" — the list displays but is never updated, because nothing puts it back in front of the model |
+## When not to use it
 
-The fix that exists upstream ([PR #190](https://github.com/juicesharp/rpiv-mono/pull/190), stale
-reminders + compaction resync) has been open since 2026-08-26. This package is a sibling
-extension instead, so it works with whatever rpiv-todo version you run.
+- You do not use `rpiv-todo`. Without a list there is nothing to continue; the extension is inert.
+- You want unattended overnight loops against an acceptance criterion. This drives an existing task
+  list; it does not invent goals, and it stops after `maxRounds` (default 12).
+- You want the agent's continuations to be visible in the transcript. They are deliberately hidden.
 
 ## Install
 
-```sh
+```bash
+# from npm
 pi install npm:pi-todo-loop
+
+# straight from the repository
+pi install git:github.com/DumbMice/pi-todo-loop
 ```
 
-Or from git / a local checkout:
+Then `/reload` (or restart) and ask for something with several steps.
 
-```sh
-pi install git:github.com/yangbangcheng/pi-todo-loop
-pi install ./pi-todo-loop
-```
-
-Run `/reload` (or restart) afterwards, then ask for something with several steps.
-
-**Install exactly one copy.** If a development copy also sits in
-`~/.pi/agent/extensions/todo-loop/`, both register a `turn_end` handler and each will
-request its own continuation.
-
-## Requirements
+Requirements:
 
 | | |
 |---|---|
-| pi | 1.5.0 verified; needs the `turn_end` boundary (`continue` + draft `entries`) |
+| pi | 1.5.0 verified; needs the `turn_end` boundary with `continue` and draft `entries` |
 | rpiv-todo | 2.15.0 verified; any version that persists `rpiv-todo-state` custom entries or `todo` toolResult `details.tasks` |
-| Node | ≥ 22.18 (only for the test runner; the extension itself has no runtime dependencies) |
+| Node | >= 22.6 for the test runner; the extension has no runtime dependencies |
 
-Without rpiv-todo the extension is a no-op: no list, nothing to continue.
-
-## How it works
-
-Two hooks, one command, no patching.
-
-**`context`** (before every LLM request, non-destructive):
-
-1. strips this extension's hidden continuation marker from the request;
-2. appends the authoritative open-task list at the tail:
-
-```xml
-<todo_loop_state>
-2 tracked task(s) are still open on this branch:
-  2. [pending] write the report
-  3. [in_progress] running the tests
-The list is authoritative. Keep working it; do not ask whether to continue.
-</todo_loop_state>
-```
-
-That block is never persisted — it is per-request context, so it costs nothing in history
-and cannot be lost by compaction. It is also what keeps the request from ending on an
-assistant message once the marker is stripped (see *Design notes*).
-
-**`turn_end`**: decides whether to request another turn. The whole policy is a pure
-function in [`src/loop.ts`](src/loop.ts), unit-tested:
-
-| Situation | Result |
-|---|---|
-| turn ended in `error` / `aborted` | stop |
-| no open tasks | stop (`list is clear` / `no list`) |
-| new human message since the last decision | budget resets, then evaluate |
-| turn ran a tool, or the list changed | continue |
-| no tool and no list change, once | continue (`strike 1`) |
-| no tool and no list change, again | stop (`no progress`) |
-| `rounds >= maxRounds` | stop (`round cap`) |
-
-**`/todoloop`** — `status` (default), `pause`, `resume`, `reset`.
+**Install one copy only.** A development checkout in `~/.pi/agent/extensions/todo-loop/` alongside the
+npm package makes both register a `turn_end` handler, and each will request its own continuation.
 
 ## Configuration
 
-`~/.pi/agent/todo-loop.json`, all optional:
+`~/.pi/agent/todo-loop.json`, every key optional:
 
 ```json
 {
@@ -110,79 +79,77 @@ function in [`src/loop.ts`](src/loop.ts), unit-tested:
 }
 ```
 
-| Key | Default | Meaning |
+| Key | Default | Notes |
 |---|---|---|
-| `maxRounds` | `12` | max consecutive continuations per human message |
-| `maxStrikes` | `2` | consecutive no-progress turns tolerated |
-| `injectState` | `true` | append the task list to each request |
-| `maxInjectedTasks` | `6` | rows rendered before `... and N more` |
+| `maxRounds` | `12` | consecutive continuations allowed per human message |
+| `maxStrikes` | `2` | consecutive turns that neither ran a tool nor changed the list before stopping |
+| `injectState` | `true` | append the authoritative task list to each request |
+| `maxInjectedTasks` | `6` | rows rendered before `… and N more` |
 
-Invalid or unreadable config falls back to the defaults — this extension is never the
-reason a turn fails.
+Missing, unreadable or invalid values fall back to the defaults: a bad config never fails a turn.
+
+## Commands
+
+| Command | Effect |
+|---|---|
+| `/todoloop` | status: mode, rounds, strikes, open count, why it last stopped, config path |
+| `/todoloop pause` | stop continuing in this session |
+| `/todoloop resume` | continue again |
+| `/todoloop reset` | clear the round and strike counters |
 
 **Kill switch**, checked before every decision:
 
-```sh
-touch ~/.pi/agent/todo-loop-off     # global
-touch .pi/todo-loop-off             # this project only
+```bash
+touch ~/.pi/agent/todo-loop-off     # all projects
+touch .pi/todo-loop-off             # this project
 ```
 
-## Compatibility and failure modes
+## Behaviour to expect
 
-- **rpiv-todo changes its persisted shape** → `readSnapshot` falls back to the `todo`
-  toolResult `details`, then to "no list" (a no-op). It never throws inside a turn boundary.
-- **Compaction** → nothing to resync: the list is read from the branch on every request,
-  not from in-memory state.
-- **Branches and forks** → state is derived from the *active branch*, so an abandoned
-  branch's tasks do not leak into the current one.
-- **Another extension also returns `continue`** → boundary handlers compose: `entries` are
-  chained and `continue` is OR-ed by pi, so both proposals survive.
-- **`injectState: false`** → the marker is kept instead of stripped, so continuations still
-  work without the per-request block; the model then has to call `list` itself.
+- **Continuation is silent.** Each request adds one `custom_message` with `display: false` (~40
+  characters) to the session, and that message is stripped from the provider request. Nothing appears
+  in the transcript.
+- **The task list is injected on every request** while tasks are open, as a `<todo_loop_state>` block
+  at the tail: the open tasks with their ids and statuses, and an instruction to work the list rather
+  than ask whether to continue. It is not persisted, so compaction cannot remove it.
+- **One continuation per human message.** The budget resets when you send a message, not when the
+  agent continues.
+- **A no-progress turn is not continued twice.** A turn that ran no tool and left the list unchanged
+  spends a strike; the second consecutive strike stops the loop instead of nagging.
+- **Errors are not continued.** A turn that ends `error` or `aborted` stops the loop immediately.
+- **It costs one small walk of the branch per request**, plus the injected block (~150 tokens) while
+  tasks are open. Set `injectState: false` to trade that block for the model having to call `list`.
+- **It never writes to your working tree.** The only file it reads is the optional config; state lives
+  in the session.
 
-## Design notes
+## Troubleshooting
 
-**Why not a fork of rpiv-todo.** It is a 15k-line, 15-package monorepo publishing ~140
-versions in seven months. Nothing in its todo logic needs to change; this layer only reads
-what it persists. A fork would inherit that churn and lose upstream fixes.
+- **Nothing continues.** Check `/todoloop`. `DISABLED` means a kill-switch file exists; `PAUSED` means
+  `/todoloop pause`; `no list` means the agent never called `todo`. A list whose tasks are all
+  `completed` or `deleted` is clear by definition.
+- **It continues, then stops after two turns.** That is the strike budget: the agent produced no tool
+  call and did not touch the list twice. Either the work is actually done, or it is stuck — raise
+  `maxStrikes` only if you want more attempts.
+- **It stops after 12 continuations.** `maxRounds`. The status line reports `round cap`.
+- **Continuations appear twice / rounds jump by two.** Two copies are installed. `pi list` shows the
+  sources; remove one, then `/reload`.
+- **The agent still does not update the task list.** It is being continued and told the list is
+  authoritative, but marking progress is the model's job. A weaker model may keep the list stale;
+  nothing here fabricates status on its behalf.
 
-**Why one hidden entry per continuation.** pi's `turn_end` boundary requires the proposed
-projection to end on a non-assistant message
-(`_buildBoundaryContext().canContinue`), so a continuation cannot be expressed with zero
-entries. One `custom_message` with `display: false` is the minimum: invisible in the TUI,
-~40 characters in the journal, and stripped from the provider request. There is no public
-`resume()` API that appends nothing.
+## Further reading
 
-**Why the marker and the injection are coupled.** Stripping the marker alone would leave
-the request ending on an assistant message, which some providers reject. So whenever the
-marker is stripped, the state block is appended to carry the user-role tail. Do not remove
-one without the other.
-
-## Development
-
-No build step, no runtime dependencies.
-
-```sh
-npm test          # node --experimental-strip-types --test test/*.test.ts
-npm run typecheck # tsc --noEmit (needs `npm i -D typescript @types/node`)
-pi -e ./          # load this checkout for one invocation
-```
-
-Layout:
-
-```
-src/index.ts   pi wiring: context hook, turn_end hook, /todoloop
-src/loop.ts    pure decision policy (fully unit-tested)
-src/state.ts   reads rpiv-todo state off the session branch
-src/inject.ts  renders the per-request task block
-```
-
-## Security
-
-Extensions execute in the pi process. This one reads the session branch, reads one opt-in
-JSON config, and writes nothing — no files, no network, no process execution, no
-model-visible text beyond the task block above.
+- **pi extension API notes and deliberate workarounds** —
+  [docs/pi-api-alignment.md](https://github.com/DumbMice/pi-todo-loop/blob/main/docs/pi-api-alignment.md)
+- **Working on this repository** — layout, invariants, tests, release process:
+  [AGENTS.md](https://github.com/DumbMice/pi-todo-loop/blob/main/AGENTS.md)
+- **Changes by version**:
+  [CHANGELOG.md](https://github.com/DumbMice/pi-todo-loop/blob/main/CHANGELOG.md)
+- **Why this exists** — the upstream issues it closes:
+  [rpiv-mono#159](https://github.com/juicesharp/rpiv-mono/issues/159),
+  [#222](https://github.com/juicesharp/rpiv-mono/issues/222),
+  [#259](https://github.com/juicesharp/rpiv-mono/issues/259)
 
 ## License
 
-MIT
+MIT. Source and issues: <https://github.com/DumbMice/pi-todo-loop>.

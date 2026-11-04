@@ -25,11 +25,26 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadConfig } from "./config.ts";
 import { INJECT_TAG, renderInjection } from "./inject.ts";
 import { decide, initialState, type LoopState } from "./loop.ts";
 import { readSnapshot } from "./state.ts";
+
+/**
+ * Snapshot of the pi extension API surface this file depends on. Keep in step
+ * with the header of `docs/pi-api-alignment.md`.
+ *
+ * No pi type import on purpose: the extension is loaded by pi and the type
+ * package would otherwise need to be a dependency, for one signature.
+ */
+export const PI_API_SNAPSHOT = "1.5.0";
+
+/** The part of `ExtensionContext` this extension reads. */
+interface SessionContext {
+	readonly cwd: string;
+	readonly sessionManager: { getBranch(): readonly unknown[] };
+	readonly ui: { notify(message: string, level: "info" | "error" | "warning"): void };
+}
 
 /** Stable across versions: earlier sessions' markers must keep being stripped. */
 export const MARKER_TYPE = "todo-loop:continue";
@@ -37,7 +52,7 @@ export const MARKER_TYPE = "todo-loop:continue";
 export const CONFIG_PATH = join(homedir(), ".pi/agent/todo-loop.json");
 const KILL_SWITCH_GLOBAL = join(homedir(), ".pi/agent/todo-loop-off");
 
-function isDisabled(ctx: ExtensionContext): boolean {
+function isDisabled(ctx: SessionContext): boolean {
 	if (existsSync(KILL_SWITCH_GLOBAL)) return true;
 	try {
 		return existsSync(join(ctx.cwd, ".pi/todo-loop-off"));
@@ -46,7 +61,7 @@ function isDisabled(ctx: ExtensionContext): boolean {
 	}
 }
 
-function branchEntries(ctx: ExtensionContext): readonly unknown[] {
+function branchEntries(ctx: SessionContext): readonly unknown[] {
 	try {
 		return (ctx.sessionManager.getBranch() as readonly unknown[]) ?? [];
 	} catch {
@@ -54,14 +69,14 @@ function branchEntries(ctx: ExtensionContext): readonly unknown[] {
 	}
 }
 
-export default function todoLoop(pi: ExtensionAPI): void {
+export default function todoLoop(pi: any): void {
 	const state: LoopState & { paused: boolean; reason: string } = {
 		...initialState(),
 		paused: false,
 		reason: "idle",
 	};
 
-	pi.on("context", async (event, ctx) => {
+	pi.on("context", async (event: any, ctx: SessionContext) => {
 		if (isDisabled(ctx)) return undefined;
 		const original = event.messages as unknown[];
 		const withoutMarker = original.filter((message) => {
@@ -86,7 +101,7 @@ export default function todoLoop(pi: ExtensionAPI): void {
 		};
 	});
 
-	pi.on("turn_end", async (event, ctx) => {
+	pi.on("turn_end", async (event: any, ctx: SessionContext) => {
 		if (isDisabled(ctx) || state.paused) return undefined;
 
 		const config = loadConfig(CONFIG_PATH);
@@ -128,7 +143,7 @@ export default function todoLoop(pi: ExtensionAPI): void {
 
 	pi.registerCommand("todoloop", {
 		description: "Show or control the todo-driven continuation loop",
-		handler: async (args, ctx) => {
+		handler: async (args: string, ctx: SessionContext) => {
 			const command = (args ?? "").trim().toLowerCase();
 			const config = loadConfig(CONFIG_PATH);
 

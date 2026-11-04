@@ -4,7 +4,10 @@
 	"description": "Pi extension: keep the agent working while an rpiv-todo list still has open tasks, and keep that list in context across compaction.",
 	"type": "module",
 	"license": "MIT",
-	"author": "yangbangcheng",
+	"author": {
+		"name": "DumbMice",
+		"email": "bangchengyang@hotmail.com"
+	},
 	"keywords": [
 		"pi-package",
 		"pi",
@@ -15,14 +18,12 @@
 		"rpiv-todo",
 		"agent-loop"
 	],
-	"homepage": "https://github.com/yangbangcheng/pi-todo-loop#readme",
+	"homepage": "https://github.com/DumbMice/pi-todo-loop#readme",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/yangbangcheng/pi-todo-loop.git"
+		"url": "git+https://github.com/DumbMice/pi-todo-loop.git"
 	},
-	"bugs": {
-		"url": "https://github.com/yangbangcheng/pi-todo-loop/issues"
-	},
+	"bugs": "https://github.com/DumbMice/pi-todo-loop/issues",
 	"pi": {
 		"extensions": [
 			"./src/index.ts"
@@ -30,9 +31,12 @@
 	},
 	"files": [
 		"src",
+		"docs",
 		"README.md",
-		"CHANGELOG.md",
-		"LICENSE"
+		"AGENTS.md",
+		"CONTRIBUTING.md",
+		"LICENSE",
+		"CHANGELOG.md"
 	],
 	"peerDependencies": {
 		"@earendil-works/pi-coding-agent": "*"
@@ -46,10 +50,15 @@
 		"access": "public"
 	},
 	"scripts": {
-		"test": "node --experimental-strip-types --test test/*.test.ts",
-		"typecheck": "tsc --noEmit"
+		"test": "node --experimental-strip-types --no-warnings --test test/*.test.ts",
+		"typecheck": "tsc -p tsconfig.json",
+		"pack:check": "npm pack --dry-run"
 	},
 	"engines": {
-		"node": ">=22.18"
+		"node": ">=22.6"
+	},
+	"devDependencies": {
+		"@types/node": "^22.20.5",
+		"typescript": "^5.9.3"
 	}
 }
