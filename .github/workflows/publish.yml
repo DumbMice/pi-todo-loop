@@ -72,9 +72,18 @@ jobs:
             console.log("packed manifest ok:", p.name, p.version);
           '
 
+      # The first version of a new package has to be created from the CLI (or with a
+      # pending publisher). After that this workflow is the publisher, and a re-run of
+      # a tag whose version already exists must not fail the release.
       - name: Publish
         if: startsWith(github.ref, 'refs/tags/')
-        run: npm publish --access public
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if npm view "pi-todo-loop@$version" version >/dev/null 2>&1; then
+            echo "::notice::pi-todo-loop@$version is already on npm — skipping publish"
+            exit 0
+          fi
+          npm publish --access public
 
       - name: Create the GitHub release
         if: startsWith(github.ref, 'refs/tags/')

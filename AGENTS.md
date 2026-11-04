@@ -291,8 +291,15 @@ Publishing runs in `.github/workflows/publish.yml` on a pushed `v*` tag, using n
 short-lived publish credential, so the repository holds no `NPM_TOKEN`, and npm attaches a provenance
 attestation automatically because the repository is public.
 
-**Configure the publisher once** at <https://www.npmjs.com/package/pi-todo-loop/access> — or as a
-*Pending publisher* before the first release, which is what a brand-new package needs:
+**The first version is published from the CLI**, because a package that does not exist yet cannot have
+a trusted publisher configured from a workflow (npm also offers a *pending publisher* for that case):
+
+```bash
+npm login                 # or refresh the token in ~/.npmrc
+npm publish --access public
+```
+
+Then **configure the publisher once** at <https://www.npmjs.com/package/pi-todo-loop/access>:
 
 | Field | Value |
 |---|---|
@@ -302,7 +309,9 @@ attestation automatically because the repository is public.
 | Workflow filename | `publish.yml` |
 | Environment | leave empty |
 
-The workflow must keep that filename: npm pins the publisher to it. It runs `npm ci`, the suite, the
+The workflow must keep that filename: npm pins the publisher to it. It skips the publish when the tag's
+version already exists on npm, so the manual first release and a re-run of the same tag both work; the
+GitHub release is still created. It runs `npm ci`, the suite, the
 typecheck and `npm run pack:check`, refuses to publish when the tag and `package.json` disagree, packs
 the tarball and asserts the packed manifest still declares `pi.extensions`, then publishes and creates
 the GitHub release from the matching `CHANGELOG.md` section. It has no inputs: a manual `workflow_dispatch` is a
@@ -319,6 +328,10 @@ git commit -m "chore: release v$VERSION"
 git tag -a "v$VERSION" -m "v$VERSION"
 git push origin main --follow-tags
 ```
+
+For the **first** release only: `npm publish --access public` before pushing the tag. Push the tag
+anyway — the workflow notices the version already exists, skips the upload, and creates the GitHub
+release.
 
 `--follow-tags` pushes only **annotated** tags, which is why the recipe uses `git tag -a`. A pushed tag
 starts the publish; nothing else does.
