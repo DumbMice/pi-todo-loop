@@ -20,7 +20,7 @@ test("context strips the marker and appends the state block when tasks are open"
 		messages: [
 			{ role: "user", content: "go" },
 			{ role: "assistant", content: "partial" },
-			{ role: "user", customType: MARKER_TYPE, content: "<todo_loop n=\"1\" open=\"2\"/>" },
+			{ role: "custom", customType: MARKER_TYPE, content: "<todo_loop_continue/>", display: false },
 		],
 	});
 
@@ -334,18 +334,66 @@ test("an aborted turn carrying tool results reports the stop and keeps the strik
 	assert.match(h.notices.at(-1) as string, /last: stopped: turn outcome was aborted/);
 });
 
-test("a summary or shell-output tail is treated as user-role", async () => {
-	// pi projects compactionSummary, branchSummary and bashExecution to user-role
-	// messages. Missing them would put the block after a user message.
+test("a summary or shell-output tail gets its own block message, not a merge", async () => {
+	// pi rebuilds the content of these roles from their own fields and ignores
+	// `content`, so merging would silently drop the block. They project to an
+	// independent user message, so append one.
 	const h = harness(branchWith([task(1, "pending")]));
-	for (const role of ["compactionSummary", "branchSummary", "bashExecution", "custom"]) {
+	for (const role of ["compactionSummary", "branchSummary", "bashExecution"]) {
 		const result = await run(h, "context", {
-			messages: [{ role: "assistant", content: "a" }, { role, content: "summary text" }],
+			messages: [{ role: "assistant", content: "a" }, { role, summary: "summary text" }],
 		});
-		assert.equal(result.messages.length, 2, `${role} must be merged into, not followed`);
-		assert.equal(result.messages.at(-1).role, role);
-		assert.equal((result.messages.at(-1).content as unknown[]).length, 2);
+		assert.equal(result.messages.length, 3, `${role} must not be merged into`);
+		assert.equal(result.messages.at(-2).role, role, "the summary is untouched");
+		assert.equal(result.messages.at(-1).role, "user");
+		assert.match(result.messages.at(-1).content[0].text, /tracked task\(s\) are still open/);
 	}
+});
+
+test("a custom message tail is merged into, because pi honours its content", async () => {
+	const h = harness(branchWith([task(1, "pending")]));
+	const result = await run(h, "context", {
+		messages: [{ role: "assistant", content: "a" }, { role: "custom", customType: "other", content: "note" }],
+	});
+	assert.equal(result.messages.length, 2);
+	assert.equal(result.messages.at(-1).customType, "other");
+});
+
+test("merging into an array-content human message preserves the parts and appends the block", async () => {
+	// Production tails are always arrays (`content: [{type:"text",text}, ...images]`).
+	// A mutation that discards `existing` would delete the human's own prompt text while
+	// every other test stays green.
+	const h = harness(branchWith([task(1, "pending")]));
+	const image = { type: "image", data: "aGk=", mimeType: "image/png" };
+	const result = await run(h, "context", {
+		messages: [
+			{ role: "assistant", content: "a" },
+			{ role: "user", content: [{ type: "text", text: "keep going" }, image] },
+		],
+	});
+	const parts = result.messages.at(-1).content;
+	assert.equal(parts.length, 3);
+	assert.equal(parts[0].text, "keep going");
+	assert.deepEqual(parts[1], image, "the image part survives");
+	assert.match(parts[2].text, /tracked task\(s\) are still open/);
+});
+
+test("a stop is announced, and a repeated reason is not announced twice", async () => {
+	const h = harness(branchWith([task(1, "pending")]), { maxRounds: 1 });
+	const settle = { outcome: "completed", toolResults: [], entries: [] };
+
+	await run(h, "turn_end", settle); // continues
+	const afterContinue = h.notices.length;
+	await run(h, "turn_end", settle); // stops on the cap
+	assert.equal(h.notices.length, afterContinue + 1, "the stop is announced");
+	assert.match(h.notices.at(-1) as string, /todo-loop: stopped: round cap 1 reached/);
+
+	await run(h, "turn_end", settle); // stops on the strike budget: a different reason
+	const afterSecondStop = h.notices.length;
+	assert.match(h.notices.at(-1) as string, /no progress/);
+
+	await run(h, "turn_end", settle); // same reason again: silent
+	assert.equal(h.notices.length, afterSecondStop, "an unchanged reason is not repeated");
 });
 
 test("a toolResult tail gets the block appended, not merged", async () => {

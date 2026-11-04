@@ -208,7 +208,8 @@ touch .pi/todo-loop-off             # this project
 - **Continuation is silent.** Each continuation appends one `custom_message` with `display: false`
   — a constant 21-character body (`<todo_loop_continue/>`), roughly 200 bytes as a session entry — and
   requests one more turn. Nothing is added to the visible transcript.
-- **A marker survives only where it separates two assistant turns.** That is where it is the
+- **A marker survives only where it separates two assistant turns** — and only when the block is being
+  added, because the whole request is left untouched otherwise. That is where it is the
   alternation glue; removing it there would expose consecutive assistant messages, which strict
   providers reject. Where a marker would sit next to a real user message — at the tail, or just before
   your own message — it is dropped, because it would only duplicate that user turn. One marker per
@@ -226,9 +227,11 @@ touch .pi/todo-loop-off             # this project
 - **With `injectState: false` the only continuation signal the model sees is that bare
   `<todo_loop_continue/>` line** — no instruction and no task list. That is the configuration to pick if
   you would rather the model call the todo tool itself than be told what to do.
-- **The injected block is the last thing in the request.** It is user-role text, so it competes with
-  your own newest message: while tasks are open the model is told the list is authoritative. That is
-  why it is one bounded paragraph, and why `injectState: false` exists.
+- **The injected block is the last thing in the request, and it yields to you.** It is user-role text,
+  so it sits after your newest message; it says to carry on with the open tasks, and it says that an
+  instruction from you to stop or wait outranks it. Models still vary in how readily they take that
+  concession: a model that reads your "stop" as authoritative will refuse, and those refusals cost up to
+  `maxRounds` turns. That is the same reason `injectState: false` exists.
 - **Only a settle spends a round.** pi fires `turn_end` after every assistant response, including
   ones that ended in a tool call. Those turns already cause pi's next request, so they cost nothing:
   no marker, no round. A round is spent only on a turn that would otherwise have ended the run.
@@ -237,6 +240,8 @@ touch .pi/todo-loop-off             # this project
   starts empty in a new process (see the memory note below). A user-role message that carries a
   `customType` (this extension's marker, or another extension's hidden message) is skipped, so it does
   not reset the budget; `/todoloop` prints the anchor it is using.
+- **A stop is announced.** When the loop stops and the reason has changed, `/todoloop`'s reason is also
+  sent as a notification, so a run that ends on a cap or a strike is not silent.
 - **A stop keeps the budget shut.** Hitting the cap or the strike limit does not clear the counters —
   another extension's continuation, or a provider retry under the same user message, will not re-arm 12
   more rounds. A queued human message is a new anchor, so it resets the budget the ordinary way.
@@ -259,9 +264,10 @@ touch .pi/todo-loop-off             # this project
   number of continuations × session size. `maxRounds` caps continuations, not turns — tool turns are
   pi's own and unbounded, so a long tool-heavy stretch can be many turns for one round. That, not the
   block, is the dominant term.
-- Each hook call — once in `context`, once in `turn_end` — reads the config and probes the kill switch;
-  unless `injectState` is off (or the extension is disabled or paused), it also walks the branch once.
-  While tasks are open, the block adds ~100 tokens at the tail. `injectState: false`
+- `context` reads the config and probes the kill switch, and walks the branch only when it is going to
+  inject (`injectState` on, not disabled, not paused). `turn_end` does all three on every turn, because
+  it needs the counters' inputs regardless. While tasks are open, the block adds ~100 tokens at the
+  tail. `injectState: false`
   adds no block at all and leaves the model to call the todo tool's `list` action.
 - Returning a changed message list makes pi rebuild the request head from the current prompt and tool
   state, which is lossless but means the head is not byte-identical to the previous request. That is

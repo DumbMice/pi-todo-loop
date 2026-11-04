@@ -53,7 +53,11 @@ test("the fixture ends with a marker, the shape a continuation request really ha
 test("the context hook keeps real markers and appends one block", async () => {
 	const messages = branch
 		.filter((entry) => entry.type === "message" || entry.type === "custom_message")
-		.map((entry) => entry.message ?? { role: "user", customType: entry.customType, content: entry.content });
+		// pi projects a custom_message to `role: "custom"`, not `role: "user"`.
+		.map(
+			(entry) =>
+				entry.message ?? { role: "custom", customType: entry.customType, content: entry.content, display: false },
+		);
 
 	const handlers: Record<string, (event: any, ctx: any) => any> = {};
 	todoLoop(

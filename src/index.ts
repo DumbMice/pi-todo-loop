@@ -156,7 +156,13 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 		if (kept.length === 0) return undefined;
 
 		const tail = kept[kept.length - 1];
-		if (tail !== null && isUserRole(tail)) {
+		const tailRole = record(tail)?.role;
+		// pi rebuilds the content of `bashExecution`, `branchSummary` and
+		// `compactionSummary` from their own fields and ignores `content`, so merging
+		// into one of those would silently drop the block. Only `user` and `custom`
+		// honour `content`; the others get a separate message.
+		const mergeable = tailRole === "user" || tailRole === "custom";
+		if (tail !== null && isUserRole(tail) && mergeable) {
 			// Merge into the human's own message rather than adding a second one after it.
 			const entry = tail as Record<string, unknown>;
 			const existing = Array.isArray(entry.content)
@@ -168,7 +174,7 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 			return { messages: [...kept.slice(0, -1), { ...entry, content }] };
 		}
 
-		return { messages: [...kept, { role: "user", content: [text] }] };
+		return { messages: [...kept, { role: "user", content: [text], timestamp: Date.now() }] };
 	});
 
 	pi.on("turn_end", async (event: any, ctx: SessionContext) => {
@@ -207,7 +213,10 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 		});
 
 		if (!decision.continue) {
+			const previous = state.reason;
 			Object.assign(state, decision.next, { reason: decision.reason });
+			// A stop is otherwise silent until someone runs /todoloop.
+			if (previous !== decision.reason) ctx.ui?.notify?.(`todo-loop: ${decision.reason}`, "info");
 			return undefined;
 		}
 

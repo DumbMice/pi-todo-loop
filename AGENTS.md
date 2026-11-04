@@ -55,6 +55,9 @@ These are the invariants the suite protects. Changing one means changing its tes
 README text, the matching `docs/pi-api-alignment.md` item (or marking that item inapplicable), and
 adding a `CHANGELOG.md` line — all in the same commit.
 
+- **Merge only into a `user` or `custom` tail.** pi rebuilds `bashExecution`/`branchSummary`/
+  `compactionSummary` content from their own fields and ignores `content`, so merging into those would
+  delete the block; they get a separate message and a documented adjacency (register item 15).
 - **A marker is kept only where it separates two assistant turns.** There it is the alternation glue;
   removing it exposes consecutive assistant messages that alternation-requiring providers reject. Any
   other marker — at the tail, or followed by a human message — is dropped, because it would duplicate a
@@ -79,8 +82,7 @@ adding a `CHANGELOG.md` line — all in the same commit.
   ended in a tool call; those already cause pi's next request, so the hook returns before deciding. A
   round, a marker and a strike are therefore always about a turn that would have ended the run.
 - **A tool turn clears a strike and spends no round** — except a tool turn that ends `error`/`aborted`,
-  which records the stop and leaves the strike budget alone.
-- **A tool turn clears a strike and spends no round.** Tool turns already cause pi's next request, so
+  which records the stop and leaves the strike budget alone. Tool turns already cause pi's next request, so
   they must not consume the budget; but they are work, so they reset `strikes`. Without that, a model
   that runs tools and never updates the list collects two strikes across its settles and stops claiming
   "no progress" while it was working.
