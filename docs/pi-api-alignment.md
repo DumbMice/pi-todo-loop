@@ -47,11 +47,14 @@ full. Items that produce no signal in the transcript are marked _(silent)_.
    bypasses `AgentSession` lifecycle handling (busy state, queuing, retry, abort).
 9. **The kill switch is checked in both hooks, not once at load.** Removing it or creating the file
    takes effect on the next request, without `/reload`.
-10. **No pi type import; `pi: any` at the registration boundary.** The extension is imported by pi at
-    runtime, and importing `@earendil-works/pi-coding-agent` for one signature would make it a
-    dependency of a package that is meant to have none. Contexts this file reads are typed
-    structurally (`SessionContext`) rather than nominally. The trade-off: the compiler does not check
-    event payload shapes, so `npm test` and a real `pi -e` run carry that weight.
+10. **No dependency on `@earendil-works/pi-coding-agent`, and no peer declaration for it.** Nothing
+    here imports the package: the boundary is typed `pi: any` and contexts are typed structurally
+    (`SessionContext`), so the only manifest link to the host is `pi.extensions`. A `peerDependencies`
+    entry would assert a module dependency that does not exist and would have no effect regardless —
+    managed installs pass `--omit=peer` and disable peer resolution, and the loader performs no
+    compatibility check. The trade-off of dropping the type import: the compiler does not check event
+    payload shapes, so `npm test` and a real `pi -e` run carry that weight, and the tested pi version
+    is recorded in the table above rather than enforced.
 11. **A declared dependency on rpiv-todo's *persisted shape*, which is not its public API.** This
     extension imports nothing from `@juicesharp/rpiv-todo` and therefore declares no dependency on it,
     but it reads two representations the package writes: `custom` entries with
