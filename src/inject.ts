@@ -28,24 +28,37 @@ function label(status: string, subject: string, activeForm?: string): string {
  * like one of our own directives, or push the block to an unbounded size.
  */
 export function sanitizeLabel(text: string): string {
-	const flattened = text.replace(/[\r\n\t]+/g, " ");
+	// Every Unicode line terminator, not just \n: U+2028/9 and NEL (U+0085) split a
+	// line for some readers, which is the channel this function exists to close.
+	const flattened = text.replace(/[\r\n\t\u2028\u2029\u0085]+/g, " ");
 	// C0/C1 controls, bidi overrides and isolates, zero-width and BOM characters: a
-	// NUL can break JSON encoding and a bidi override can visually reverse a line in
-	// the transcript.
+	// NUL can break JSON encoding and a bidi override can visually reverse a line.
 	const cleaned = flattened.replace(
 		/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g,
 		"",
 	);
-	const escaped = cleaned.replaceAll("</", "<\\/");
+	// No tag can be opened or closed from task text: `<` is escaped, which also covers
+	// `</` and a bare `<todo_loop_state>` that would invert the block's nesting.
+	const escaped = cleaned.replaceAll("<", "&lt;").replaceAll("&lt;", "&lt;");
+	// Bound the working set before materialising code points (a 1 MB subject would
+	// otherwise allocate a 1M-element array per row); 480 UTF-16 units can hold far
+	// more than the 120 code points that survive.
+	const bounded = escaped.length > 480 ? escaped.slice(0, 480) : escaped;
 	// By code point, never UTF-16 units: `slice` can cut a surrogate pair in half and
 	// leave a lone surrogate in the request.
-	return Array.from(escaped).slice(0, 120).join("").trim();
+	const points = Array.from(bounded).slice(0, 120).join("");
+	// An unpaired surrogate already in the payload survives `Array.from`; drop it so the
+	// request is always valid UTF-16.
+	return points.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "").trim();
 }
 
 export function renderInjection(snapshot: Snapshot, config: LoopConfig): string {
 	const shown = snapshot.open.slice(0, config.maxInjectedTasks);
 	const rows = shown.map(
-		(task) => `  ${task.id}. [${task.status}] ${sanitizeLabel(label(task.status, task.subject, task.activeForm))}`,
+		(task) =>
+			`  ${task.id}. [${sanitizeLabel(task.status)}] ${sanitizeLabel(
+				label(task.status, task.subject, task.activeForm),
+			)}`,
 	);
 	const hidden = snapshot.open.length - shown.length;
 

@@ -59,8 +59,10 @@ adding a `CHANGELOG.md` line — all in the same commit.
   `compactionSummary` content from their own fields and ignores `content`, so merging into those would
   delete the block; they get a separate message and a documented adjacency (register item 15).
 - **Task text is model-authored, so it is sanitised, not interpolated.** `sanitizeLabel` collapses
-  newlines, escapes `</` and truncates, because a subject can come from a fetched page and is rendered
-  at the end of a request inside a tag. Never render a subject or `activeForm` raw.
+  flattens every Unicode line terminator, escapes `<`, drops controls/bidi/unpaired surrogates and
+  truncates by code point, because a subject can come from a fetched page and is rendered at the end of
+  a request inside a tag. **`status` is task-authored too** and gets the same treatment. Never render a
+  task field raw.
 - **A marker is kept only where it separates two assistant turns.** There it is the alternation glue;
   removing it exposes consecutive assistant messages that alternation-requiring providers reject. Any
   other marker — at the tail, or followed by a human message — is dropped, because it would duplicate a
@@ -248,10 +250,13 @@ grep -c 'todo-loop:continue' ~/.pi/agent/sessions/<project>/*.jsonl   # one per 
 
 ## Release process
 
-Publishing uses npm [trusted publishing](https://docs.npmjs.com/trusted-publishers): the workflow
-exchanges a GitHub OIDC token for a short-lived credential, so the repository holds no `NPM_TOKEN` and
-no long-lived write token is needed. Because the repository is public, npm attaches a provenance
-attestation automatically — no `--provenance` flag.
+**0.1.0 is published manually** — there is no publish workflow in this repository, so trusted
+publishing and provenance are not available yet. Run `npm login`, then `npm publish`; `prepublishOnly`
+runs the suite, the typecheck and the pack check first, so a publish cannot ship a tarball nothing
+verified. When a publish workflow lands, switch it to [trusted
+publishing](https://docs.npmjs.com/trusted-publishers): the workflow exchanges a GitHub OIDC token for
+a short-lived credential, no `NPM_TOKEN` is needed, and npm attaches a provenance attestation
+automatically on a public repository.
 
 ```bash
 npm version patch --no-git-tag-version    # or minor/major; the working tree must be clean
@@ -268,13 +273,9 @@ lightweight tag would stay local and publish nothing.
 
 **There is no publish workflow in this repository.** `.github/workflows/test.yml` runs the suite,
 typecheck and pack check only. After pushing the tag, publish from the tagged commit in a clean tree:
-
-```bash
-npm publish
-```
-
-If a trusted-publishing workflow is added later, it must run those three checks and refuse to publish
-when the tag and `package.json` version disagree. Until then, the tag is a bookmark, not a release.
+`npm publish` (its `prepublishOnly` repeats those three checks). If a trusted-publishing workflow is
+added later, it must also refuse to publish when the tag and `package.json` version disagree. Until
+then, the tag is a bookmark, not a release.
 
 ## Commits and security
 

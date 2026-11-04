@@ -107,7 +107,7 @@ Requirements:
 |---|---|
 | pi | tested on **1.5.0**; needs the `turn_end` boundary with `continue` and draft `entries`. Older versions are unverified |
 | todo tool | any tool named `todo` that persists `rpiv-todo-state` custom entries or `todo` toolResult `details.tasks`; tested with `@juicesharp/rpiv-todo` **2.15.0**. Not declared in the manifest on purpose — see [docs/pi-api-alignment.md](docs/pi-api-alignment.md) item 12 |
-| Node | `engines` declares `>= 22.6` — the test runner needs `--experimental-strip-types`; pi loads the TypeScript itself, so an older Node only warns. No runtime dependencies |
+| Node | `engines` declares `>= 22.19`, the floor pi 1.5.0 itself requires. The extension has no runtime dependencies and loads its TypeScript through pi |
 
 Tested against, not merely required:
 
