@@ -122,3 +122,15 @@ test("strikes never exceed the cap they are measured against", () => {
 	}
 	assert.equal(state.strikes, DEFAULTS.maxStrikes, "a budget should not read 3/2");
 });
+
+test("a stale list stops on the cap with a reason that says so", () => {
+	const config = { ...DEFAULTS, maxRounds: 2, maxStrikes: 10 };
+	let state = { ...initialState(), anchor: "user-1", lastSignature: "1:pending" };
+	for (let round = 0; round < 3; round += 1) {
+		state = decide(input({ toolResultCount: 0, state, config })).next;
+	}
+	const decision = decide(input({ toolResultCount: 0, state, config }));
+	assert.equal(decision.continue, false);
+	assert.match(decision.reason, /round cap 2 reached/);
+	assert.match(decision.reason, /list unchanged for \d+ settles/, "a stale burn must not read like healthy work");
+});

@@ -5,9 +5,10 @@
 [![node](https://img.shields.io/node/v/pi-todo-loop)](https://github.com/DumbMice/pi-todo-loop/blob/main/package.json)
 [![tests](https://github.com/DumbMice/pi-todo-loop/actions/workflows/test.yml/badge.svg)](https://github.com/DumbMice/pi-todo-loop/actions/workflows/test.yml)
 
-An extension for the [pi coding agent](https://pi.dev) that keeps the agent working while a todo list
-written by [`@juicesharp/rpiv-todo`](https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-todo)
-still has open tasks, and keeps that list in front of the model across compaction. `rpiv-todo` renders
+An extension for the [pi coding agent](https://pi.dev) that adds the turn
+[`rpiv-todo`](https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-todo) cannot add: while the
+list has open tasks the agent keeps working, the list is put back in front of the model after
+compaction, and clearing the list is what stops it. `rpiv-todo` renders
 and stores the list; it never asks pi for another turn. This adds the turn.
 
 It continues what the list says — it cannot tell a stale list from a finished one, so it needs a list
@@ -207,8 +208,10 @@ touch .pi/todo-loop-off             # this project
 ## Behaviour to expect
 
 - **Continuation is silent.** Each continuation appends one `custom_message` with `display: false`
-  — a constant 21-character body (`<todo_loop_continue/>`), roughly 200 bytes as a session entry — and
-  requests one more turn. Nothing is added to the visible transcript.
+  — a constant body that states the instruction ("Continue with the open todo tasks…"), roughly 260
+  bytes as a session entry — and requests one more turn. Nothing is added to the visible transcript.
+  The body carries no counters, so a marker left in history cannot claim a round; with
+  `injectState: false` it is the only text the model receives, which is why it is not just a tag.
 - **A marker survives only where it separates two assistant turns** — and only when the block is being
   added, because the whole request is left untouched otherwise. That is where it is the
   alternation glue; removing it there would expose consecutive assistant messages, which strict
@@ -220,6 +223,10 @@ touch .pi/todo-loop-off             # this project
 - **The task list is injected on every request** while tasks are open, as a `<todo_loop_state>` block:
   open tasks with ids and statuses, plus an instruction to work the list rather than ask whether to
   continue. It is not persisted, so compaction cannot remove it.
+- **A list cleared by `todo` calls alone is announced.** If every task goes from open to closed in a
+  turn whose only tool results were `todo`, a warning says so once. The loop's success state and its
+  failure state are the same observable — a confident "all done" that no other tool work supports is
+  the one thing worth seeing out loud.
 - **The ids in the block are the todo tool's own**, except where the stored list supplies an unusable or
   duplicate id: that row is moved to a free number so each row can be addressed separately, which means a
   `todo` call using the shown number can fail when the tool wrote the list that way.
@@ -259,6 +266,15 @@ touch .pi/todo-loop-off             # this project
   model's context drops older entries, but the reader still walks the whole branch, so `/todoloop` can
   report open work the model has no list for. That is deliberate — the newest todo state is the right
   answer even when the model cannot see it — but it means the panel and the model can disagree.
+- **A delegated child session runs its own loop.** Each session has its own list and counters, so a
+  subagent that loads this extension can continue independently of its parent; markers do not
+  interleave, but the work can. If you do not want that, do not load it in the child.
+- **`/todoloop` needs an interactive session.** In `pi -p` and `--mode json` the loop still runs, but
+  there is no UI for the status or the stop notification — the only signal is the marker count in the
+  session file and the model's final message.
+- **Scope of the switches.** `.pi/todo-loop-off` stops every session started in that directory;
+  `~/.pi/agent/todo-loop-off` stops all projects; the config file is global and re-read on every
+  request, so editing it affects running sessions.
 - **`no list` is one status for four causes:** no todo tool is installed, the agent never called a tool
   named `todo`, the tool it called writes a shape this extension does not recognise, or every task was
   `deleted`. The status cannot currently tell them apart.
@@ -274,9 +290,11 @@ touch .pi/todo-loop-off             # this project
   it needs the counters' inputs regardless. While tasks are open, the block adds ~100 tokens at the
   tail. `injectState: false`
   adds no block at all and leaves the model to call the todo tool's `list` action.
-- Returning a changed message list makes pi rebuild the request head from the current prompt and tool
-  state, which is lossless but means the head is not byte-identical to the previous request. That is
-  recorded in [docs/pi-api-alignment.md](docs/pi-api-alignment.md), not measured here.
+- One small measurement on `deepseek-flash` (a 2.7k-token session, five turns): with injection on,
+  ~1,050 uncached input tokens per turn against ~405 with `injectState: false`, and cache reads still
+  occurred in both runs (16.0k vs 36.1k total). So the block does not disable the prompt cache, but it
+  and the head rebuild cost a few hundred uncached tokens per request. Treat that as an order of
+  magnitude, not a benchmark — the two runs took different trajectories.
 - Bounds: `maxRounds` per human message, `maxStrikes` consecutive no-progress turns, and no continuation
   at all on `error` / `aborted`. There is no absolute session ceiling; a resumed session starts a new
   budget.
@@ -291,7 +309,7 @@ Reason strings from `/todoloop`, and what they mean:
 | `stopped: list is clear` | every remaining task is `completed` — a list whose tasks are all `deleted` reports `no list` instead |
 | `stopped: no list` | no recognised todo state on the branch — see the four causes above |
 | `stopped: 2 consecutive turns with no progress, 2 open` | the last two settles ran no tool and left the list unchanged — tool work would have cleared the strikes, so this is prose-only behaviour; raise `maxStrikes` only if you want more attempts |
-| `stopped: round cap 12 reached, 2 open` | the budget is spent; send a message to start a new one |
+| `stopped: round cap 12 reached, 2 open` | the budget is spent; send a message to start a new one. With `, list unchanged for N settles` appended, the model ran tools without ever updating the list |
 | `stopped: turn outcome was error` / `aborted` | the provider failed, or you aborted the turn |
 | `paused by user` | `/todoloop pause`; `/todoloop resume` or restart |
 | `resumed by user` | `/todoloop resume`; the next settle may continue. A chain stopped by the round cap or the strike limit stays stopped — send a message, or `/todoloop reset` |

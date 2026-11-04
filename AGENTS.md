@@ -58,6 +58,8 @@ adding a `CHANGELOG.md` line — all in the same commit.
 - **Merge only into a `user` or `custom` tail.** pi rebuilds `bashExecution`/`branchSummary`/
   `compactionSummary` content from their own fields and ignores `content`, so merging into those would
   delete the block; they get a separate message and a documented adjacency (register item 15).
+- **A `todo`-only clear is announced, not policed.** The loop's success and failure states are the same
+  observable; a warning is the most it may do about it.
 - **Task text is model-authored, so it is sanitised, not interpolated.** `sanitizeLabel` collapses
   flattens every Unicode line terminator, escapes `<`, drops controls/bidi/unpaired surrogates and
   truncates by code point, because a subject can come from a fetched page and is rendered at the end of
@@ -247,6 +249,35 @@ grep -c 'todo-loop:continue' ~/.pi/agent/sessions/<project>/*.jsonl   # one per 
   Added/Changed/Fixed headings; add the version heading when the release is tagged. `test/docs.test.ts`
   fails if the published version has no entry, so this one is enforced.
 - `AGENTS.md` (this file) holds contributor, architecture and release material.
+
+## Release canary
+
+The one failure this suite cannot see is pi changing how a `display: false` `custom_message` projects,
+or tightening `canContinue`. Drafts are committed before the continuation is validated, so that change
+would persist a marker, drop the continuation, and leave `/todoloop` reporting `continuing: round n/12`
+until it reports `round cap` with zero continuations — while every test here stays green, because the
+harness drives a stub `pi`.
+
+Before every version bump, on the *new* pi, run the documented live check once:
+
+```bash
+pi -e . -p "create two todos 'a' and 'b', then reply ok" --tools todo
+grep -c 'todo-loop:continue' ~/.pi/agent/sessions/--<project>--/*.jsonl   # 0 is a failure
+```
+
+and read the pi changelog for `custom_message`, `display`, `canContinue`, plus rpiv-todo's for
+`reminder` (upstream PR #190 would put a second task block in the request).
+
+## Known limitations to revisit
+
+- **The decision is at `turn_end`, one boundary early.** pi 1.5.0 documents `agent_before_settle` as
+  the final actionable boundary that can append entries and request one continuation, and at
+  `turn_end` the hook has to reconstruct "the run would otherwise end" from `toolResults.length === 0`.
+  The consequence is a bounded wasted round when a human message is queued mid-turn, and the strike
+  reset lives in the adapter rather than in `decide()`. Moving the decision is the 0.2.0 change; it must
+  ship with a CHANGELOG line because it changes which turns spend a round.
+- **`getBranch()` is not the model-visible context** (register item 16): after compaction the panel can
+  show work the model has no list for.
 
 ## Release process
 

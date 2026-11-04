@@ -131,7 +131,8 @@ test("turn_end requests one turn with a hidden marker when work is open", async 
 	assert.equal(appended.customType, MARKER_TYPE);
 	assert.equal(appended.display, false, "the marker must never render");
 	assert.equal(result.entries.length, 2, "existing proposals are preserved");
-	assert.equal(appended.content, "<todo_loop_continue/>", "the marker carries no counters");
+	assert.match(appended.content, /Continue with the open todo tasks/, "the body carries the instruction");
+	assert.doesNotMatch(appended.content, /\d/, "and no counters");
 });
 
 test("turn_end stops on an errored or aborted turn and does not spend a round", async () => {
@@ -404,4 +405,34 @@ test("a toolResult tail gets the block appended, not merged", async () => {
 	});
 	assert.equal(result.messages.length, 3);
 	assert.equal(result.messages.at(-2).role, "toolResult");
+});
+
+test("a list cleared by todo calls alone is not laundered as verified work", async () => {
+	const h = harness([
+		{ type: "message", id: "user-1", message: { role: "user", content: "go" } },
+		{ type: "custom", customType: "rpiv-todo-state", id: "t1", data: { tasks: [task(1, "pending")] } },
+	]);
+	await run(h, "turn_end", { outcome: "completed", toolResults: [], entries: [] });
+	const before = h.notices.length;
+	// The clear arrives in the next turn, as a real todo call would.
+	h.branch.push({ type: "custom", customType: "rpiv-todo-state", id: "t2", data: { tasks: [task(1, "completed")] } });
+	await run(h, "turn_end", {
+		outcome: "completed",
+		toolResults: [{ toolName: "todo" }],
+		entries: [],
+	});
+	assert.equal(h.notices.length, before + 1, "the suspicious clear is announced");
+	assert.match(h.notices.at(-1) as string, /cleared by todo calls alone/);
+});
+
+test("a list cleared alongside real tool work is not announced", async () => {
+	const h = harness([
+		{ type: "message", id: "user-1", message: { role: "user", content: "go" } },
+		{ type: "custom", customType: "rpiv-todo-state", id: "t1", data: { tasks: [task(1, "pending")] } },
+	]);
+	await run(h, "turn_end", { outcome: "completed", toolResults: [], entries: [] });
+	const before = h.notices.length;
+	h.branch.push({ type: "custom", customType: "rpiv-todo-state", id: "t2", data: { tasks: [task(1, "completed")] } });
+	await run(h, "turn_end", { outcome: "completed", toolResults: [{ toolName: "todo" }, { toolName: "bash" }], entries: [] });
+	assert.equal(h.notices.length, before, "real work needs no warning");
 });

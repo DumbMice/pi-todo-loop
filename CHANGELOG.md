@@ -39,6 +39,12 @@ Initial release.
   (`settle`, `tool`, `edit`, `human`, pause/resume/reset, error/abort, kill switch), asserting
   continuations, markers, rounds, strikes, the `/todoloop` reason and header at once. Re-introducing any
   of the three historical budget defects fails it.
+- The continuation marker's constant body states the instruction ("Continue with the open todo
+  tasks…") instead of a self-closing tag, so `injectState: false` no longer continues with no
+  instruction at all, and a marker left in history is self-explanatory.
+- A list that goes open → closed in a turn whose only tool results were `todo` is announced once: the
+  loop's success state and its failure state are the same observable.
+- A stale-list burn now says so: the round-cap reason appends `, list unchanged for N settles`.
 - Task text is sanitised before it enters a request — subject, `activeForm` **and `status`**: every
   Unicode line terminator flattens, `<` is escaped, controls/bidi/zero-width and unpaired surrogates are
   dropped, and labels truncate by code point, so a task subject cannot close the injection tag or forge a directive. Verified against a

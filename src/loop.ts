@@ -13,6 +13,8 @@ export interface LoopState {
 	strikes: number;
 	/** Task signature at the previous decision, to detect list changes. */
 	lastSignature: string;
+	/** Settles since the list last changed: a stale list stops on the cap, not on strikes. */
+	staleSettles: number;
 	/** Id of the user message the current budget belongs to. */
 	anchor: string;
 }
@@ -82,7 +84,9 @@ export function decide(input: DecisionInput): Decision {
 
 	// A new human message owns a fresh budget.
 	let current: LoopState =
-		input.anchor !== state.anchor ? { ...state, rounds: 0, strikes: 0, lastSignature: "", anchor: input.anchor } : { ...state };
+		input.anchor !== state.anchor
+			? { ...state, rounds: 0, strikes: 0, lastSignature: "", staleSettles: 0, anchor: input.anchor }
+			: { ...state };
 
 	if (input.outcome !== "completed") {
 		return stop(current, `stopped: turn outcome was ${input.outcome}`);
@@ -94,7 +98,9 @@ export function decide(input: DecisionInput): Decision {
 	const progressed = input.toolResultCount > 0 || input.signature !== current.lastSignature;
 	if (progressed) {
 		current.strikes = 0;
+		current.staleSettles = 0;
 	} else {
+		current.staleSettles += 1;
 		// A budget must never read above the cap it is measured against (`strikes 3/2`).
 		current.strikes = Math.min(current.strikes + 1, config.maxStrikes);
 		if (current.strikes >= config.maxStrikes) {
@@ -106,7 +112,9 @@ export function decide(input: DecisionInput): Decision {
 	}
 
 	if (current.rounds >= config.maxRounds) {
-		return stop(current, `stopped: round cap ${config.maxRounds} reached, ${input.openCount} open`);
+		const stale =
+			current.staleSettles >= 2 ? `, list unchanged for ${current.staleSettles} settles` : "";
+		return stop(current, `stopped: round cap ${config.maxRounds} reached, ${input.openCount} open${stale}`);
 	}
 
 	current.rounds += 1;
@@ -119,5 +127,5 @@ export function decide(input: DecisionInput): Decision {
 }
 
 export function initialState(): LoopState {
-	return { rounds: 0, strikes: 0, lastSignature: "", anchor: "" };
+	return { rounds: 0, strikes: 0, lastSignature: "", staleSettles: 0, anchor: "" };
 }

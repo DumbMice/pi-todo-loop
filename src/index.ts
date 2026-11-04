@@ -51,11 +51,13 @@ interface SessionContext {
 export const MARKER_TYPE = "todo-loop:continue";
 
 /**
- * Constant body. The marker exists to keep the persisted history alternating and to
- * give `turn_end` a non-assistant tail; it carries no counters, so a stale marker in
- * history cannot claim the loop is on some other round.
+ * Constant body. The marker keeps the persisted history alternating and gives
+ * `turn_end` a non-assistant tail; it carries no counters, so a stale marker in
+ * history cannot claim the loop is on some other round. It states the instruction
+ * because with `injectState: false` this line is the only text the model receives.
  */
-export const MARKER_BODY = "<todo_loop_continue/>";
+export const MARKER_BODY =
+	"Continue with the open todo tasks. If the human's latest instruction says to stop or limits what to do, do that instead.";
 
 export const CONFIG_PATH = join(homedir(), ".pi/agent/todo-loop.json");
 const KILL_SWITCH_GLOBAL = join(homedir(), ".pi/agent/todo-loop-off");
@@ -95,10 +97,11 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 		}
 	};
 
-	const state: LoopState & { paused: boolean; reason: string } = {
+	const state: LoopState & { paused: boolean; reason: string; lastOpenCount: number } = {
 		...initialState(),
 		paused: false,
 		reason: "idle",
+		lastOpenCount: 0,
 	};
 
 	pi.on("context", async (event: any, ctx: SessionContext) => {
@@ -182,7 +185,8 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 
 		const config = loadConfig(configPath);
 		const snapshot = readSnapshot(branchEntries(ctx));
-		const toolResultCount = Array.isArray(event?.toolResults) ? event.toolResults.length : 0;
+		const toolResults = Array.isArray(event?.toolResults) ? (event.toolResults as unknown[]) : [];
+		const toolResultCount = toolResults.length;
 		// `turn_end` fires for every assistant response, including one that ended in a
 		// tool call. Such a turn already causes pi's next request, so a continuation
 		// would be redundant — and counting it as a round spends the budget on work the
@@ -192,6 +196,21 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 		// model that runs tools and never updates the list (the case this extension is
 		// for) collects two strikes across its settles and stops with "no progress"
 		// while it was working the whole time.
+		// A list that goes open -> clear in a turn whose only tool calls were `todo` is
+		// the loop's success state and its failure state at once. Never police it;
+		// just do not launder the trust: say so once.
+		if (snapshot.open.length === 0 && state.lastOpenCount > 0 && toolResultCount > 0) {
+			const names = toolResults.map((result) => String((result as Record<string, unknown>)?.toolName ?? ""));
+			const onlyTodo = names.every((name) => name === "todo");
+			if (onlyTodo) {
+				ctx.ui?.notify?.(
+					"todo-loop: the list was cleared by todo calls alone in that turn — no other tool work accompanied it",
+					"warning",
+				);
+			}
+		}
+		state.lastOpenCount = snapshot.open.length;
+
 		if (toolResultCount > 0) {
 			if (String(event?.outcome) !== "completed") {
 				state.reason = `stopped: turn outcome was ${String(event?.outcome)}`;
