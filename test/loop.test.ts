@@ -113,3 +113,12 @@ test("config caps are honoured", () => {
 	assert.equal(second.continue, false);
 	assert.match(second.reason, /round cap 1/);
 });
+
+test("strikes never exceed the cap they are measured against", () => {
+	const known = { ...initialState(), anchor: "user-1", lastSignature: "1:pending" };
+	let state = known;
+	for (let round = 0; round < 4; round += 1) {
+		state = decide(input({ toolResultCount: 0, state })).next;
+	}
+	assert.equal(state.strikes, DEFAULTS.maxStrikes, "a budget should not read 3/2");
+});

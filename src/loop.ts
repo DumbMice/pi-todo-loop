@@ -95,7 +95,8 @@ export function decide(input: DecisionInput): Decision {
 	if (progressed) {
 		current.strikes = 0;
 	} else {
-		current.strikes += 1;
+		// A budget must never read above the cap it is measured against (`strikes 3/2`).
+		current.strikes = Math.min(current.strikes + 1, config.maxStrikes);
 		if (current.strikes >= config.maxStrikes) {
 			return stop(
 				current,

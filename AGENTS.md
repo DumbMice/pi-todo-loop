@@ -55,11 +55,11 @@ These are the invariants the suite protects. Changing one means changing its tes
 README text, the matching `docs/pi-api-alignment.md` item (or marking that item inapplicable), and
 adding a `CHANGELOG.md` line — all in the same commit.
 
-- **Markers are history glue, not throwaway artefacts.** A marker is persisted between two assistant
-  turns, which is what keeps the conversation alternating; stripping historical markers exposes runs of
-  consecutive assistant messages that alternation-requiring providers reject. Markers are therefore
-  never removed from history. Only a marker sitting at the **tail** is replaced by the state block, so a
-  request never ends on two user-role messages.
+- **A marker is kept only where it separates two assistant turns.** There it is the alternation glue;
+  removing it exposes consecutive assistant messages that alternation-requiring providers reject. Any
+  other marker — at the tail, or followed by a human message — is dropped, because it would duplicate a
+  real user turn. The test `no returned request ever contains two adjacent user-role messages` is the
+  general statement; if you change the filter, run it first.
 - **The marker body is constant** (`<todo_loop_continue/>`). It carries no round counter, because a
   persisted marker must not claim the loop is on round `n` long after that chain ended. Counters live in
   memory and are reported by `/todoloop`.
@@ -149,7 +149,8 @@ introduces an edge.
 ## Adding or changing a continuation rule
 
 1. Put the logic in `decide()` (`src/loop.ts`), not in the hook. The hook only adapts events and
-   applies the returned state.
+   applies the returned state. Add a row to `SCENARIOS` in `test/state-machine.test.ts` for the new
+   behaviour before touching prose.
 2. Add the field to `LoopState` or `DecisionInput` if new information is needed, and make it
    default-safe: a session recorded by an older build must still decide sensibly.
 3. Add cases to `test/loop.test.ts`: the new rule, its boundary, and the ordering against the reset

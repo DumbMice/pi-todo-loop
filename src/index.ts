@@ -120,33 +120,49 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 		// marker sitting at the tail (the continuation request about to be made) is
 		// replaced by the state block, so the request never ends on user → user.
 		const text = { type: "text", text: renderInjection(snapshot, config) };
-		const isMarker = (message: unknown): boolean =>
-			(message as Record<string, unknown> | null)?.customType === MARKER_TYPE;
+		const record = (message: unknown): Record<string, unknown> | null =>
+			typeof message === "object" && message !== null ? (message as Record<string, unknown>) : null;
+		const isMarker = (message: unknown): boolean => record(message)?.customType === MARKER_TYPE;
 		const isUserRole = (message: unknown): boolean => {
-			const record = message as Record<string, unknown> | null;
-			if (record === null) return false;
+			const entry = record(message);
+			if (entry === null) return false;
 			// A custom_message projects to a user-role message; anything else is user
 			// only when its role says so.
-			return typeof record.customType === "string" ? record.role !== "assistant" : record.role === "user";
+			return typeof entry.customType === "string" ? entry.role !== "assistant" : entry.role === "user";
 		};
 
-		// Reduce to a tail that is not one of our markers: a marker is bookkeeping, and
-		// leaving it next to the block would send two user-role messages in a row.
-		let base = original;
-		while (base.length > 0 && isMarker(base[base.length - 1])) base = base.slice(0, -1);
+		// A marker only earns its place *between* two assistant turns, where it is the
+		// alternation glue. Anywhere else it is redundant bookkeeping that would sit
+		// next to a real user message and break alternation: drop it. That covers a
+		// marker at the tail, a marker followed by a human message, and two markers in
+		// a row.
+		const kept = (original as unknown[]).filter((message, index, list) => {
+			if (!isMarker(message)) return true;
+			const previous = list[index - 1];
+			const next = list[index + 1];
+			// Both neighbours must exist and neither may be user-role: `[A, M, H]` and
+			// `[A, H, M, A]` both leave a marker next to a human message, which is the
+			// adjacency this filter exists to prevent.
+			return previous !== undefined && next !== undefined && !isUserRole(previous) && !isUserRole(next);
+		});
 
-		const tail = base.length > 0 ? base[base.length - 1] : null;
+		// Nothing left to attach to: an empty request would be an instruction with no prompt.
+		if (kept.length === 0) return undefined;
+
+		const tail = kept[kept.length - 1];
 		if (tail !== null && isUserRole(tail)) {
-			// Merge into the human's own message (or another extension's user message)
-			// instead of adding a second one after it.
-			const record = tail as Record<string, unknown>;
-			const content = Array.isArray(record.content)
-				? [...(record.content as unknown[]), text]
-				: [{ type: "text", text: String(record.content ?? "") }, text];
-			return { messages: [...base.slice(0, -1), { ...record, content }] };
+			// Merge into the human's own message rather than adding a second one after it.
+			const entry = tail as Record<string, unknown>;
+			const existing = Array.isArray(entry.content)
+				? (entry.content as unknown[])
+				: typeof entry.content === "string" && entry.content !== ""
+					? [{ type: "text", text: entry.content }]
+					: [];
+			const content = [...existing, text];
+			return { messages: [...kept.slice(0, -1), { ...entry, content }] };
 		}
 
-		return { messages: [...base, { role: "user", content: [text] }] };
+		return { messages: [...kept, { role: "user", content: [text] }] };
 	});
 
 	pi.on("turn_end", async (event: any, ctx: SessionContext) => {
@@ -165,6 +181,10 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 		// for) collects two strikes across its settles and stops with "no progress"
 		// while it was working the whole time.
 		if (toolResultCount > 0) {
+			if (String(event?.outcome) !== "completed") {
+				state.reason = `stopped: turn outcome was ${String(event?.outcome)}`;
+				return undefined;
+			}
 			state.strikes = 0;
 			return undefined;
 		}

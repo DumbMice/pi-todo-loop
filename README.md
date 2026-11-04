@@ -46,16 +46,18 @@ pi:   Everything checks out.
       ← same again: strike 2 → stopped: 2 consecutive turns with no progress, 2 open
 ```
 
-A different run, where the model works but never updates the list — the strikes never fire, so the
-budget does the stopping:
+A different run, where the model works but never updates the list — every stale settle spends a
+strike and every tool turn clears it, so the strikes never stack and the budget does the stopping:
 
 ```text
-pi:   [every turn: tool calls, todo never updated]
-      ← rounds advance on tool activity alone → stopped: round cap 12 reached, 2 open
+pi:   [interleaved: tool calls and prose turns, todo never updated]
+      ← tool turns cost nothing; each settle spends a round and a strike, which the next tool turn
+        clears → stopped: round cap 12 reached, 2 open
 ```
 
-The two are distinguishable from `/todoloop` alone: `strikes 1/2` is the prose case, `strikes 0/2` with
-`rounds` climbing is the stale-list case.
+The three are told apart by the reason line, not by `strikes` alone: a strike stop reads `strikes 2/2`,
+a cap stop leaves the capping settle's own strike in place (`strikes 1/2`), and `strikes 0/2` with
+`rounds` at the cap is the healthy case — the list changed on every settle.
 
 ## When to use it
 
@@ -133,8 +135,8 @@ config ~/.pi/agent/todo-loop.json
 ```
 
 `strikes` reads `1/2` after a settle that left the list unchanged. A turn that ended in a tool call
-changes nothing here: `rounds` stays where it was, `last:` keeps its previous value, no marker is
-written.
+resets `strikes` to `0` and changes nothing else: `rounds` stays where it was, `last:` keeps its
+previous value, no marker is written.
 
 To count continuations in the session file:
 
@@ -202,12 +204,13 @@ touch .pi/todo-loop-off             # this project
 - **Continuation is silent.** Each continuation appends one `custom_message` with `display: false`
   — a constant 21-character body (`<todo_loop_continue/>`), roughly 200 bytes as a session entry — and
   requests one more turn. Nothing is added to the visible transcript.
-- **Markers stay in history; the tail is never doubled.** A continuation marker sits between two
-  assistant turns, so it is what keeps the conversation alternating; removing it would expose runs of
-  consecutive assistant messages that strict providers reject. Markers therefore stay, one per
-  continuation (~200 bytes, no counters in the body). When the state block is appended and the tail is
-  one of our markers, the block replaces it; when the tail is a human message, the block is added to
-  that message instead of after it. Either way a request never ends on two user-role messages.
+- **A marker survives only where it separates two assistant turns.** That is where it is the
+  alternation glue; removing it there would expose consecutive assistant messages, which strict
+  providers reject. Where a marker would sit next to a real user message — at the tail, or just before
+  your own message — it is dropped, because it would only duplicate that user turn. One marker per
+  continuation (~200 bytes, no counters in the body). The block replaces a marker tail, and merges into
+  a human tail instead of being appended after it, so a request never contains two user-role messages
+  in a row.
 - **The task list is injected on every request** while tasks are open, as a `<todo_loop_state>` block:
   open tasks with ids and statuses, plus an instruction to work the list rather than ask whether to
   continue. It is not persisted, so compaction cannot remove it.
@@ -227,7 +230,9 @@ touch .pi/todo-loop-off             # this project
   more rounds. A queued human message is a new anchor, so it resets the budget the ordinary way.
 - **A no-progress turn is not continued twice.** A turn that ran no tool and left the list unchanged
   spends a strike; the second consecutive strike stops the loop instead of nagging.
-- **Errors are not continued.** A turn that ends `error` or `aborted` stops the loop immediately.
+- **Errors are not continued, but they do not close the budget.** A turn that ends `error` or `aborted`
+  stops the loop for that turn and spends no round; the counters are left as they were, so the next
+  settle under the same human message can continue again — which is what a provider retry hits.
 - **It never writes to your working tree.** The only reads are the optional config, the two
   kill-switch paths and the session branch. Counters, the pause flag and the last stop reason live in
   memory: `/reload`, a restart or a resumed session starts a new budget and re-reads the list from the
@@ -259,11 +264,11 @@ Reason strings from `/todoloop`, and what they mean:
 | `continuing: round 1/12, 2 open` | working as intended |
 | `stopped: list is clear` | every remaining task is `completed` — a list whose tasks are all `deleted` reports `no list` instead |
 | `stopped: no list` | no recognised todo state on the branch — see the four causes above |
-| `stopped: 2 consecutive turns with no progress, 2 open` | two settles in a row left the list unchanged — the model may still be running tools, so raise `maxStrikes` only if you want more attempts |
+| `stopped: 2 consecutive turns with no progress, 2 open` | the last two settles ran no tool and left the list unchanged — tool work would have cleared the strikes, so this is prose-only behaviour; raise `maxStrikes` only if you want more attempts |
 | `stopped: round cap 12 reached, 2 open` | the budget is spent; send a message to start a new one |
 | `stopped: turn outcome was error` / `aborted` | the provider failed, or you aborted the turn |
 | `paused by user` | `/todoloop pause`; `/todoloop resume` or restart |
-| `resumed by user` | `/todoloop resume`; the next settle may continue (a chain already stopped stays stopped — send a message) |
+| `resumed by user` | `/todoloop resume`; the next settle may continue. A chain stopped by the round cap or the strike limit stays stopped — send a message, or `/todoloop reset` |
 | `counters reset` | `/todoloop reset` cleared the rounds, the strikes and the list signature |
 | `idle` | nothing has run yet in this process, e.g. straight after `/reload` |
 

@@ -65,8 +65,10 @@ test("the block is appended when the tail is an assistant turn", async () => {
 	const result = await run(h, "context", {
 		messages: [{ role: "user", content: "go" }, marker(), { role: "assistant", content: "a" }],
 	});
+	// The marker between a human message and an assistant turn is redundant: the
+	// human message already provides the alternation, so the marker is dropped.
 	const roles = result.messages.map((message: any) => (message.customType ? "marker" : message.role));
-	assert.deepEqual(roles, ["user", "marker", "assistant", "user"]);
+	assert.deepEqual(roles, ["user", "assistant", "user"]);
 });
 
 test("the request never ends with two user-role messages", async () => {
@@ -262,4 +264,68 @@ test("the status header says stopped once the budget is shut", async () => {
 	await run(h, "turn_end", work);
 	await h.commands.todoloop.handler("", h.ctx);
 	assert.match(h.notices.at(-1) as string, /todo-loop stopped/);
+});
+
+test("a marker between an assistant turn and a human message is dropped", async () => {
+	// A marker only separates two assistant turns. Once a human message follows it,
+	// the marker is redundant — and leaving it would put two user-role messages in a
+	// row, which strict providers reject.
+	const h = harness(branchWith([task(1, "pending")]));
+	const result = await run(h, "context", {
+		messages: [{ role: "assistant", content: "a" }, marker(), { role: "user", content: "do this instead" }],
+	});
+	const roles = result.messages.map((message: any) => (message.customType ? "marker" : message.role));
+	assert.deepEqual(roles, ["assistant", "user"], "one user-role tail, block merged into the human message");
+});
+
+test("no returned request ever contains two adjacent user-role messages", async () => {
+	const h = harness(branchWith([task(1, "pending")]));
+	const cases: unknown[][] = [
+		[{ role: "assistant", content: "a" }, marker()],
+		[{ role: "assistant", content: "a" }, marker(), marker()],
+		[{ role: "assistant", content: "a" }, marker(), { role: "user", content: "h" }],
+		[{ role: "user", content: "u" }, { role: "assistant", content: "a" }, marker(), { role: "user", content: "h" }, { role: "assistant", content: "b" }],
+		[{ role: "assistant", content: "a" }, { role: "user", content: "h" }, marker(), { role: "assistant", content: "b" }],
+		[{ role: "user", content: "u" }, marker(), { role: "assistant", content: "a" }],
+		[{ role: "assistant", content: "a" }, { role: "toolResult", content: "r" }, marker()],
+	];
+	for (const messages of cases) {
+		const result = await run(h, "context", { messages });
+		const roles = (result?.messages ?? []).map((message: any) =>
+			typeof message.customType === "string" ? "user" : message.role,
+		);
+		for (let index = 1; index < roles.length; index += 1) {
+			assert.notEqual(
+				`${roles[index - 1]}/${roles[index]}`,
+				"user/user",
+				`adjacent user-role messages for ${JSON.stringify(messages.map((m: any) => m.role))}`,
+			);
+		}
+	}
+});
+
+test("a queued human message followed by a marker does not survive as an adjacency", async () => {
+	// The order a queued message produces: assistant, human, marker, then the next turn.
+	// The marker's predecessor is a human message, so it cannot be alternation glue.
+	const h = harness(branchWith([task(1, "pending")]));
+	const result = await run(h, "context", {
+		messages: [
+			{ role: "assistant", content: "a" },
+			{ role: "user", content: "queued" },
+			marker(),
+			{ role: "assistant", content: "b" },
+		],
+	});
+	const roles = result.messages.map((message: any) => (message.customType ? "marker" : message.role));
+	assert.deepEqual(roles, ["assistant", "user", "assistant", "user"], "the marker is dropped, the block appended");
+});
+
+test("an aborted turn carrying tool results reports the stop and keeps the strike", async () => {
+	const h = harness(branchWith([task(1, "pending")]));
+	await run(h, "turn_end", { outcome: "completed", toolResults: [], entries: [] });
+	const aborted = await run(h, "turn_end", { outcome: "aborted", toolResults: [{ role: "toolResult" }], entries: [] });
+	assert.equal(aborted, undefined);
+	await h.commands.todoloop.handler("", h.ctx);
+	assert.match(h.notices.at(-1) as string, /last: stopped: turn outcome was aborted/);
+	assert.match(h.notices.at(-1) as string, /mode|todo-loop/);
 });
