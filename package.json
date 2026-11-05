@@ -1,6 +1,6 @@
 {
 	"name": "@dumbmice/pi-todo-loop",
-	"version": "0.2.0",
+	"version": "0.2.1",
 	"description": "Keep pi working while a todo list still has open tasks, and stop when the agent asks for a person.",
 	"type": "module",
 	"license": "MIT",
