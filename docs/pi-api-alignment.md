@@ -28,7 +28,7 @@ full. Items that produce no signal in the transcript are marked _(silent)_.
    projection must end on a message whose role is not `assistant` — otherwise the boundary reports an
    invalid continuation and drops it. pi offers no `resume()` that appends nothing, so a continuation
    is always expressed as *one* appended entry. We append a `custom_message` with `display: false`:
-   invisible in the TUI, about 200 bytes per continuation in the journal _(silent in the transcript)_.
+   invisible in the TUI, about 220 bytes per continuation in the journal _(silent in the transcript)_.
 2. **Markers stay in history and are not stripped.** They sit between two assistant turns, so they are
    what keeps the conversation alternating: `assistant → marker(user) → assistant`. Removing them
    exposes runs of consecutive assistant messages, which alternation-requiring providers reject — a
@@ -45,14 +45,12 @@ full. Items that produce no signal in the transcript are marked _(silent)_.
    used by `pi-invisible-continue`'s `/continue`
    (<https://github.com/monotykamary/pi-invisible-continue>, not re-tested here). Conflating the two is
    the mistake this item exists to prevent.
-4. **The block is appended only where it is needed, and it never doubles the tail.** Three
-   configurations get no block: `injectState: false`, a list with no open task, and the kill switch. In
-   the first two the request keeps whatever tail the history has (a marker, an assistant turn, or the
-   human's own message) and the model must call the todo tool's `list` action to learn the list — the
-   one place this extension asks for compliance instead of enforcing state. When a block is added it
-   replaces a tail marker, is merged into a human-role tail, and is appended only after an assistant or
-   tool tail. No request ending on an assistant message has been exercised against a provider in this
-   repository's testing; the live runs used the default configuration.
+4. **The `context` hook only ever removes messages.** It returns a different list in exactly one
+   case: a marker of ours sits next to a human message, where it would project to `user → user`. Every
+   other request is passed through untouched (`undefined`), including the human's own message and every
+   tool turn, so the prompt a human sends is the prompt the model reads. Earlier versions appended a
+   state block to each request; that was removed because it rewrote the human's prompt on turns the
+   loop did not cause.
 5. **Returning a changed list rebuilds the request head.** pi documents that a `context` handler which
    returns a different message list causes it to replay the current prompt sections and tool
    declarations into one leading system message ahead of the returned list. The rebuild is lossless
@@ -118,13 +116,10 @@ full. Items that produce no signal in the transcript are marked _(silent)_.
     when, not how many rounds or strikes were left, nor why the loop stopped; that is only visible live
     through `/todoloop`. Two runs that end for different reasons can look identical on disk.
 
-15. **Three user-role tails cannot take a merge, so the block becomes a second user message there.**
-    pi rebuilds the content of `bashExecution`, `branchSummary` and `compactionSummary` from their own
-    fields and ignores `content`, so writing the block into one of them would delete it. Those three
-    get a separate user message instead, which means the request briefly has two user-role messages in a
-    row. Accepted deliberately: a compaction summary is exactly when the model most needs the list, and
-    losing it silently is worse than an adjacency that providers merge anyway.
-
+15. _(Inapplicable since the state block was removed.)_ Three user-role tails —
+    `bashExecution`, `branchSummary`, `compactionSummary` — cannot take a merged `content`, because pi
+    rebuilds those from their own fields. Nothing is merged into them now: the only text this
+    extension adds is a standalone marker message, which needs no merge and creates no adjacency.
 16. **The reader walks `getBranch()`, which is not the model-visible context.** pi's compaction-aware
     projection is `buildContextEntries()`, and a `context_edit` can hide an entry from future model
     context while it stays on the branch. Reading the branch therefore means the extension can report a

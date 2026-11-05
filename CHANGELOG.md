@@ -4,14 +4,45 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Removed
+
+- **The injected state block is gone.** The extension no longer writes task state into a request: no
+  `<todo_loop_state>` list, no reconciliation clause, no truncation variant, no merge into a `user` or
+  `custom` tail. The only text it ever gives the model is the one-sentence nudge appended with each
+  continuation, and that nudge now points at the todo tool instead of restating the list. Reading and
+  updating the list is the agent's job; the prompt stays the human's.
+- `injectState` and `maxInjectedTasks` are gone with it. A config file that still carries them loads
+  fine — unknown keys are ignored — so upgrading needs no edit.
+- The renderer and its sanitiser (`src/inject.ts`, `test/inject.test.ts`). Config coercion moved to
+  `test/config.test.ts`, because it outlived the renderer.
+
+### Changed
+
+- `context` may only *remove* a marker, never add one. It drops a marker whose neighbour is user-role
+  (next to a human message, or in a run of markers) and returns `undefined` for every other request, so
+  an ordinary turn is passed through as the object pi already built. A marker at the tail always
+  survives: it is the nudge, and dropping it would leave the continuation ending on an assistant turn.
+- `staleSettles` no longer drives injected wording. It still counts settles since the list last
+  changed and still decorates the cap reason (`, list unchanged for N settles`).
+
+### Fixed
+
+- A run of adjacent continuation markers keeps its first marker. Testing only the literal neighbours
+  dropped the whole run, leaving two assistant turns adjacent — the alternation the filter exists to
+  prevent.
+- The publish workflow's release step is idempotent: re-running a tag edits the existing release
+  instead of failing on "release already exists".
+
 ## [0.1.1] - 2026-11-04
 
 ### Added
 
-- The injected block escalates once: from the first continuation of a chain it asks the model to
-  reconcile a drifted list — update statuses, add what is missing, remove what no longer applies, in
-  that order — so a stale list has an exit short of burning the round cap. The first request of a
-  chain still only asks for status moves.
+- The injected block escalates once, from the first continuation of a chain: it asks the model to
+  reconcile a drifted list — update statuses, add what is missing, remove what no longer applies — so a
+  stale list has an exit short of burning the round cap. (Known issue, fixed in the entry above: the
+  clause was armed by the round counter, so it also reached the first request of a new human message.)
 
 ### Fixed
 
@@ -36,8 +67,8 @@ Initial release.
   never persisted, closing the post-compaction context hole
   ([rpiv-mono#222](https://github.com/juicesharp/rpiv-mono/issues/222)) and the "model
   never calls the todo tool's `list` action" failure ([rpiv-mono#159](https://github.com/juicesharp/rpiv-mono/issues/159)).
-- Hidden continuation marker (`custom_message`, `display: false`, constant 21-character body
-  `<todo_loop_continue/>`, ~200 bytes as a session entry). Markers are kept in history: they sit
+- Hidden continuation marker (`custom_message`, `display: false`, a constant instruction body,
+  ~220 bytes as a session entry). Markers are kept in history: they sit
   between assistant turns and are what keeps the conversation alternating. A marker at the tail is
   replaced by the state block, so a request never ends on two user-role messages.
 - Task state read from `rpiv-todo-state` custom entries with a `todo` toolResult
@@ -61,12 +92,6 @@ Initial release.
   (`settle`, `tool`, `edit`, `human`, pause/resume/reset, error/abort, kill switch), asserting
   continuations, markers, rounds, strikes, the `/todoloop` reason and header at once. Re-introducing any
   of the three historical budget defects fails it.
-- The continuation marker's constant body states the instruction ("Continue with the open todo
-  tasks…") instead of a self-closing tag, so `injectState: false` no longer continues with no
-  instruction at all, and a marker left in history is self-explanatory.
-- The injected block escalates once: from the first continuation onwards it asks the model to
-  reconcile a drifted list (update statuses, add what is missing, remove what no longer applies —
-  in that order), which gives a stale list a deterministic exit short of burning the round cap.
 - A list that goes open → closed in a turn whose only tool results were `todo` is announced once: the
   loop's success state and its failure state are the same observable.
 - A stale-list burn now says so: the round-cap reason appends `, list unchanged for N settles`.
@@ -83,3 +108,5 @@ Initial release.
   `.github/`) leaks into it (`npm pack --dry-run` exits 0 otherwise).
 
 [0.1.0]: https://github.com/DumbMice/pi-todo-loop/releases/tag/v0.1.0
+[0.1.1]: https://github.com/DumbMice/pi-todo-loop/releases/tag/v0.1.1
+[Unreleased]: https://github.com/DumbMice/pi-todo-loop/compare/v0.1.1...HEAD

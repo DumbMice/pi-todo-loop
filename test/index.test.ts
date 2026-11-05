@@ -11,66 +11,76 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { MARKER_TYPE } from "../src/index.ts";
-import { INJECT_TAG } from "../src/inject.ts";
-import { branchWith, harness, marker, run, task } from "./helpers/harness.ts";
+import { branchWith, harness, marker, run, setHuman, task } from "./helpers/harness.ts";
 
-test("context strips the marker and appends the state block when tasks are open", async () => {
+test("context removes a marker next to a human message and adds nothing", async () => {
 	const h = harness(branchWith([task(1, "pending"), task(2, "in_progress")]));
-	const result = await run(h, "context", {
-		messages: [
-			{ role: "user", content: "go" },
-			{ role: "assistant", content: "partial" },
-			{ role: "custom", customType: MARKER_TYPE, content: "<todo_loop_continue/>", display: false },
-		],
-	});
-
-	assert.ok(result?.messages, "the hook must return a rewritten list");
-	const kinds = result.messages.map((message: any) => message.customType ?? message.role);
-	assert.deepEqual(kinds, ["user", "assistant", "user"], "the marker is gone, one block added");
-	const last = result.messages.at(-1);
-	const text = last.content[0].text as string;
-	assert.match(text, new RegExp(`<${INJECT_TAG}>`));
-	assert.match(text, /2 tracked task\(s\) are still open/);
+	const sent = [{ role: "user", content: "go" }, marker(), { role: "assistant", content: "partial" }];
+	const result = await run(h, "context", { messages: sent });
+	assert.equal(result.messages.length, 2, "one message removed, none added");
+	assert.deepEqual(result.messages.map((message: any) => message.role), ["user", "assistant"]);
+	assert.deepEqual(result.messages[0], sent[0], "the human's message is byte-for-byte what they sent");
+});
+test("a marker next to the human message is dropped even when nothing is injected", async () => {
+	const h = harness(branchWith([task(1, "completed")]));
+	const result = await run(h, "context", { messages: [{ role: "user", content: "go" }, marker(), { role: "assistant", content: "a" }] });
+	// The marker would sit between two user-role messages, which is the adjacency it must
+	// never create. With no open tasks there is nothing to inject either.
+	assert.deepEqual(result.messages.map((message: any) => message.role), ["user", "assistant"]);
 });
 
-test("history markers are left alone when nothing is injected", async () => {
+test("a marker between two assistant turns is left alone", async () => {
+	// This is the marker's whole job: it is what keeps `assistant → assistant` legal.
 	const h = harness(branchWith([task(1, "completed")]));
 	assert.equal(
-		await run(h, "context", { messages: [{ role: "user", content: "go" }, marker(), { role: "assistant", content: "a" }] }),
+		await run(h, "context", { messages: [{ role: "assistant", content: "a" }, marker(), { role: "assistant", content: "b" }] }),
 		undefined,
-		"markers are the alternation glue; removing them would expose assistant runs",
+		"removing the glue would expose two assistant turns in a row",
 	);
 });
 
-test("history markers are left alone when injection is disabled", async () => {
-	const h = harness(branchWith([task(1, "pending")]), { injectState: false });
-	assert.equal(
-		await run(h, "context", { messages: [{ role: "user", content: "go" }, marker(), { role: "assistant", content: "a" }] }),
-		undefined,
-	);
-});
-
-test("a tail marker is replaced by the block, never followed by it", async () => {
+test("a request with no markers and no continuation is never rewritten", async () => {
 	const h = harness(branchWith([task(1, "pending")]));
-	const result = await run(h, "context", {
-		messages: [{ role: "user", content: "go" }, { role: "assistant", content: "a" }, marker()],
-	});
-	const roles = result.messages.map((message: any) => (message.customType ? "marker" : message.role));
-	assert.deepEqual(roles, ["user", "assistant", "user"], "one user-role tail, not marker + block");
-	assert.match(result.messages.at(-1).content[0].text, /1 tracked task\(s\) are still open/);
+	for (const messages of [[{ role: "user", content: "go" }], [{ role: "assistant", content: "a" }], [{ role: "user", content: "go" }, { role: "assistant", content: "a" }]]) {
+		assert.equal(await run(h, "context", { messages }), undefined);
+	}
 });
-
-test("the block is appended when the tail is an assistant turn", async () => {
+test("the prompt is never rewritten with task state", async () => {
+	// The extension's only agent-facing text is the nudge. No list, no reminder, no
+	// clause: whatever the model needs it reads with the todo tool.
 	const h = harness(branchWith([task(1, "pending"), task(2, "pending")]));
-	const result = await run(h, "context", {
-		messages: [{ role: "user", content: "go" }, marker(), { role: "assistant", content: "a" }],
-	});
-	// The marker between a human message and an assistant turn is redundant: the
-	// human message already provides the alternation, so the marker is dropped.
-	const roles = result.messages.map((message: any) => (message.customType ? "marker" : message.role));
-	assert.deepEqual(roles, ["user", "assistant", "user"]);
+	for (const messages of [
+		[{ role: "user", content: "go" }],
+		[{ role: "assistant", content: "a" }, { role: "toolResult", content: "r" }],
+		[{ role: "user", content: "go" }, { role: "assistant", content: "a" }, marker()],
+	]) {
+		const result = await run(h, "context", { messages });
+		if (result === undefined) continue;
+		assert.ok(result.messages.length <= messages.length, "a request may only shrink");
+		assert.ok(
+			messages.every((message: any, index: number) => result.messages[index] === message),
+			"surviving messages are untouched objects",
+		);
+	}
 });
-
+test("the tail marker is the nudge and is left alone", async () => {
+	// Dropping it would leave the continuation request ending on an assistant turn,
+	// which is the shape pi refuses to continue from in the first place.
+	const h = harness(branchWith([task(1, "pending")]));
+	assert.equal(
+		await run(h, "context", { messages: [{ role: "user", content: "go" }, { role: "assistant", content: "a" }, marker()] }),
+		undefined,
+	);
+});
+test("an ordinary request is not touched at all", async () => {
+	const h = harness(branchWith([task(1, "pending"), task(2, "pending")]));
+	for (const messages of [
+		[{ role: "user", content: "go" }, { role: "assistant", content: "a" }],
+		[{ role: "assistant", content: "a" }, { role: "toolResult", content: "r" }],
+	]) {
+		assert.equal(await run(h, "context", { messages }), undefined);
+	}
+});
 test("the request never ends with two user-role messages", async () => {
 	const h = harness(branchWith([task(1, "pending")]));
 	// Realistic orders only: a marker is always persisted after an assistant turn.
@@ -78,15 +88,15 @@ test("the request never ends with two user-role messages", async () => {
 		[{ role: "user", content: "go" }, { role: "assistant", content: "a" }, marker()],
 		[{ role: "user", content: "go" }, marker(), { role: "assistant", content: "b" }],
 		[{ role: "user", content: "go" }, marker(), { role: "assistant", content: "b" }, marker()],
+		[{ role: "user", content: "go" }, { role: "assistant", content: "a" }, marker(), marker()],
 	]) {
 		const result = await run(h, "context", { messages });
-		const tail = result.messages.at(-1);
-		const before = result.messages.at(-2);
-		assert.equal(tail.customType ?? tail.role, "user");
-		assert.notEqual(before?.customType ?? before?.role, "user", JSON.stringify(messages.map((m: any) => m.role)));
+		const roles = (result?.messages ?? messages).map((message: any) => (message.customType ? "user" : message.role));
+		for (let index = 1; index < roles.length; index += 1) {
+			assert.notEqual(`${roles[index - 1]}/${roles[index]}`, "user/user", JSON.stringify(messages.map((m: any) => m.role)));
+		}
 	}
 });
-
 test("context leaves a malformed payload alone instead of rewriting it", async () => {
 	const h = harness(branchWith([task(1, "pending")]));
 	for (const payload of [{}, { messages: null }, { messages: "nope" }]) {
@@ -176,23 +186,19 @@ test("the round cap is sticky for one human message", async () => {
 	assert.match(h.notices.at(-1) as string, /stopped: round cap 1 reached/);
 });
 
-test("pause stops both the continuation and the steering block", async () => {
+test("pause stops the continuation and the marker cleanup", async () => {
 	const h = harness(branchWith([task(1, "pending")]));
 	const work = { outcome: "completed", toolResults: [], entries: [] };
+	const history = [{ role: "user", content: "u" }, marker(), { role: "assistant", content: "a" }];
 
 	await h.commands.todoloop.handler("pause", h.ctx);
 	assert.equal(await run(h, "turn_end", work), undefined, "no continuation while paused");
-	assert.equal(
-		await run(h, "context", { messages: [{ role: "assistant", content: "a" }] }),
-		undefined,
-		"and no injected block while paused",
-	);
+	assert.equal(await run(h, "context", { messages: history }), undefined, "and no history rewrite");
 
 	await h.commands.todoloop.handler("resume", h.ctx);
 	assert.equal((await run(h, "turn_end", work))?.continue, true);
-	assert.ok(await run(h, "context", { messages: [{ role: "assistant", content: "a" }] }));
+	assert.ok(await run(h, "context", { messages: history }));
 });
-
 test("a turn that ran tools spends no round and appends no marker", async () => {
 	// `turn_end` fires per assistant response. A response that ended in a tool call
 	// already causes pi's next request, so it is not a continuation and must not
@@ -213,21 +219,14 @@ test("a turn that ran tools spends no round and appends no marker", async () => 
 	assert.match(h.notices.at(-1) as string, /rounds 1\/12/, "13 tool turns cost nothing");
 });
 
-test("a human-role tail receives the block instead of a second user message", async () => {
+test("the human's own message is left exactly as sent", async () => {
 	const h = harness(branchWith([task(1, "pending")]));
-	const result = await run(h, "context", {
-		messages: [
-			{ role: "assistant", content: "waiting" },
-			{ role: "user", content: "keep going" },
-		],
-	});
-	assert.equal(result.messages.length, 2, "no extra message is appended");
-	assert.equal(result.messages.at(-1).role, "user");
-	const parts = result.messages.at(-1).content;
-	assert.equal(parts.length, 2, "the block becomes an extra content part");
-	assert.match(parts[1].text, /tracked task\(s\) are still open/);
+	assert.equal(
+		await run(h, "context", { messages: [{ role: "assistant", content: "waiting" }, { role: "user", content: "keep going" }] }),
+		undefined,
+		"a human's prompt is never rewritten",
+	);
 });
-
 test("tool turns clear a pending strike but never spend a round", async () => {
 	// The case this extension exists for: the model runs tools and never updates the
 	// list. Without clearing, two settles collect two strikes and it stops with
@@ -248,9 +247,9 @@ test("tool turns clear a pending strike but never spend a round", async () => {
 	assert.equal(next?.continue, true, "so the next settle continues instead of stopping");
 });
 
-test("a marker after a human message still yields one user-role tail", async () => {
-	// The queued-message order: assistant, human message, marker. Removing the marker
-	// must not leave the block standing next to the human's own message.
+test("a marker after a human message is dropped, not merged", async () => {
+	// The queued-message order: assistant, human message, marker. The marker's
+	// predecessor is a human message, so it would project to `user → user`.
 	const h = harness(branchWith([task(1, "pending")]));
 	const result = await run(h, "context", {
 		messages: [
@@ -259,12 +258,10 @@ test("a marker after a human message still yields one user-role tail", async () 
 			marker(),
 		],
 	});
-	assert.equal(result.messages.length, 2, "no third message");
-	assert.equal(result.messages.at(-1).role, "user");
-	assert.equal(result.messages.at(-1).content.length, 2, "the block is merged into the human message");
+	assert.equal(result.messages.length, 2, "no third message, no merge");
+	assert.deepEqual(result.messages.map((message: any) => message.role), ["assistant", "user"]);
+	assert.equal(result.messages.at(-1).content, "actually, do this instead", "the human's text is not appended to");
 });
-
-
 test("a marker between an assistant turn and a human message is dropped", async () => {
 	// A marker only separates two assistant turns. Once a human message follows it,
 	// the marker is redundant — and leaving it would put two user-role messages in a
@@ -316,9 +313,8 @@ test("a queued human message followed by a marker does not survive as an adjacen
 		],
 	});
 	const roles = result.messages.map((message: any) => (message.customType ? "marker" : message.role));
-	assert.deepEqual(roles, ["assistant", "user", "assistant", "user"], "the marker is dropped, the block appended");
+	assert.deepEqual(roles, ["assistant", "user", "assistant"], "the marker is dropped and nothing is injected");
 });
-
 test("an aborted turn carrying tool results reports the stop and keeps the strike", async () => {
 	// Two settles first, so a strike is actually pending: a mutation that clears it
 	// before the outcome check must fail here.
@@ -331,53 +327,6 @@ test("an aborted turn carrying tool results reports the stop and keeps the strik
 	await h.commands.todoloop.handler("", h.ctx);
 	assert.match(h.notices.at(-1) as string, /rounds 2\/12 · strikes 1\/2/);
 	assert.match(h.notices.at(-1) as string, /last: stopped: turn outcome was aborted/);
-});
-
-test("a summary or shell-output tail gets its own block message, not a merge", async () => {
-	// pi rebuilds the content of these roles from their own fields and ignores
-	// `content`, so merging would silently drop the block. They project to an
-	// independent user message, so append one.
-	const h = harness(branchWith([task(1, "pending")]));
-	for (const role of ["compactionSummary", "branchSummary", "bashExecution"]) {
-		const result = await run(h, "context", {
-			messages: [{ role: "assistant", content: "a" }, { role, summary: "summary text" }],
-		});
-		assert.equal(result.messages.length, 3, `${role} must not be merged into`);
-		assert.equal(result.messages.at(-2).role, role, "the summary is untouched");
-		assert.equal(result.messages.at(-1).role, "user");
-		assert.match(result.messages.at(-1).content[0].text, /tracked task\(s\) are still open/);
-	}
-});
-
-test("a custom message tail is merged into, because pi honours its content", async () => {
-	const h = harness(branchWith([task(1, "pending")]));
-	const result = await run(h, "context", {
-		messages: [{ role: "assistant", content: "a" }, { role: "custom", customType: "other", content: "note" }],
-	});
-	assert.equal(result.messages.length, 2);
-	assert.equal(result.messages.at(-1).customType, "other");
-	const parts = result.messages.at(-1).content as any[];
-	assert.equal(parts.length, 2, "the block must survive the merge");
-	assert.match(parts[1].text, /tracked task\(s\) are still open/);
-});
-
-test("merging into an array-content human message preserves the parts and appends the block", async () => {
-	// Production tails are always arrays (`content: [{type:"text",text}, ...images]`).
-	// A mutation that discards `existing` would delete the human's own prompt text while
-	// every other test stays green.
-	const h = harness(branchWith([task(1, "pending")]));
-	const image = { type: "image", data: "aGk=", mimeType: "image/png" };
-	const result = await run(h, "context", {
-		messages: [
-			{ role: "assistant", content: "a" },
-			{ role: "user", content: [{ type: "text", text: "keep going" }, image] },
-		],
-	});
-	const parts = result.messages.at(-1).content;
-	assert.equal(parts.length, 3);
-	assert.equal(parts[0].text, "keep going");
-	assert.deepEqual(parts[1], image, "the image part survives");
-	assert.match(parts[2].text, /tracked task\(s\) are still open/);
 });
 
 test("a stop is announced, and a repeated reason is not announced twice", async () => {
@@ -396,15 +345,6 @@ test("a stop is announced, and a repeated reason is not announced twice", async 
 
 	await run(h, "turn_end", settle); // same reason again: silent
 	assert.equal(h.notices.length, afterSecondStop, "an unchanged reason is not repeated");
-});
-
-test("a toolResult tail gets the block appended, not merged", async () => {
-	const h = harness(branchWith([task(1, "pending")]));
-	const result = await run(h, "context", {
-		messages: [{ role: "assistant", content: "a" }, { role: "toolResult", content: "r" }],
-	});
-	assert.equal(result.messages.length, 3);
-	assert.equal(result.messages.at(-2).role, "toolResult");
 });
 
 test("a list cleared by todo calls alone is not laundered as verified work", async () => {
@@ -437,14 +377,23 @@ test("a list cleared alongside real tool work is not announced", async () => {
 	assert.equal(h.notices.length, before, "real work needs no warning");
 });
 
-test("the block asks for reconciliation only from the second request of a chain", async () => {
+test("a run of markers keeps one, so no two assistant turns end up adjacent", async () => {
 	const h = harness(branchWith([task(1, "pending")]));
-	const first = await run(h, "context", { messages: [{ role: "assistant", content: "a" }] });
-	assert.doesNotMatch(first.messages.at(-1).content[0].text, /drifted from the work/);
+	const result = await run(h, "context", {
+		messages: [
+			{ role: "assistant", content: "a" },
+			marker(),
+			marker(),
+			{ role: "assistant", content: "b" },
+		],
+	});
+	const roles = result.messages.map((message: any) => (message.customType ? "marker" : message.role));
+	assert.deepEqual(roles, ["assistant", "marker", "assistant"]);
+	assert.equal(result.messages.length, 3, "one marker survives, no block is added");
+});
 
-	// One settle → one continuation, so the next request is no longer the first sighting.
-	await run(h, "turn_end", { outcome: "completed", toolResults: [], entries: [] });
-
-	const second = await run(h, "context", { messages: [{ role: "assistant", content: "a" }] });
-	assert.match(second.messages.at(-1).content[0].text, /drifted from the work/);
+test("a run of markers at the tail keeps one, so the nudge survives", async () => {
+	const h = harness(branchWith([task(1, "pending")]));
+	const result = await run(h, "context", { messages: [{ role: "assistant", content: "a" }, marker(), marker()] });
+	assert.deepEqual(result.messages.map((message: any) => (message.customType ? "marker" : message.role)), ["assistant", "marker"]);
 });

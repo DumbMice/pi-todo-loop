@@ -73,7 +73,7 @@ test("every test name the invariant map cites actually exists", () => {
 		.split("\n")
 		.filter((line) => line.startsWith("|") && !line.startsWith("| Invariant") && !isSeparator(line));
 	// Pinned exactly: a row that disappears must fail here, not merely lower the count.
-	assert.equal(rows.length, 40, `invariant map row count changed (${rows.length}); update this number when you add a row`);
+	assert.equal(rows.length, 36, `invariant map row count changed (${rows.length}); update this number when you add a row`);
 
 	const cited: string[] = [];
 	for (const row of rows) {
@@ -129,7 +129,15 @@ test("clamp ceilings in the README match the ones the code enforces, per key", (
 		key: match[1],
 		ceiling: match[2].replace(/_/g, ""),
 	}));
-	assert.equal(clamps.length, 3, `expected three clamp ceilings, found ${clamps.length}`);
+	// Derived, not pinned: a numeric config key that is not clamped is the drift to catch.
+	const numericKeys = Object.keys(DEFAULTS)
+		.filter((key) => typeof (DEFAULTS as Record<string, unknown>)[key] === "number")
+		.sort();
+	assert.deepEqual(
+		clamps.map(({ key }) => key).sort(),
+		numericKeys,
+		"every numeric config key needs a clamp ceiling in the README",
+	);
 	for (const { key, ceiling } of clamps) {
 		assert.ok(
 			USER_FACING.includes(`\`${key}\` ≤ ${ceiling}`),

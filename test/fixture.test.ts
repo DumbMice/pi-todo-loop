@@ -50,7 +50,7 @@ test("the fixture ends with a marker, the shape a continuation request really ha
 	assert.equal(last?.display, false);
 });
 
-test("the context hook keeps real markers and appends one block", async () => {
+test("the context hook keeps real markers and adds nothing to the request", async () => {
 	const messages = branch
 		.filter((entry) => entry.type === "message" || entry.type === "custom_message")
 		// pi projects a custom_message to `role: "custom"`, not `role: "user"`.
@@ -70,11 +70,12 @@ test("the context hook keeps real markers and appends one block", async () => {
 	);
 	const result = await handlers.context({ messages }, { cwd: "/tmp", sessionManager: { getBranch: () => branch } });
 
-	const roles = result.messages.map((message: any) => message.customType ?? message.role);
-	assert.equal(roles.at(-1), "user", "the request ends on the injected block");
-	assert.equal(roles.filter((role: string) => role === "user").length, 2, "the human message and the block");
-	assert.ok(
-		roles.filter((role: string) => role === MARKER_TYPE).length >= 1,
-		"history markers survive: they keep the conversation alternating",
+	// A real continuation request ends on the marker, which is the nudge: it must
+	// survive, and no state block may be added to the request.
+	assert.equal(result, undefined, "the prompt is left exactly as built");
+	assert.equal(
+		messages.filter((message: any) => message.customType === MARKER_TYPE).length >= 1,
+		true,
+		"markers are the alternation glue",
 	);
 });

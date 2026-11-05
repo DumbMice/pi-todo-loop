@@ -63,7 +63,7 @@ It stops for three reasons, and `/todoloop` always says which:
 
 ## When it does not
 
-- **No todo tool installed.** The extension is inert: nothing continues, nothing is injected.
+- **No todo tool installed.** The extension is inert: nothing continues.
 - **You want an autonomous agent that invents its own goals.** This drives the list you have; it stops
   after 12 continuations per message by default.
 - **You want the continuations visible.** They are silent by design.
@@ -74,6 +74,10 @@ It buys *liveness*, not work. A model can satisfy the loop by closing tasks, inc
 placeholders, and a list that is never updated looks the same as one that is finished. Clearing the list
 is the only thing that stops it, so the list has to mean something to you.
 
+The extension never edits your prompt. The only text it gives the model is a one-line nudge — *continue,
+and read or update the list with the todo tool* — so the list stays the agent's to maintain, and the
+conversation stays yours.
+
 ## Configuration
 
 Optional, at `~/.pi/agent/todo-loop.json`:
@@ -81,9 +85,7 @@ Optional, at `~/.pi/agent/todo-loop.json`:
 ```json
 {
   "maxRounds": 12,
-  "maxStrikes": 2,
-  "injectState": true,
-  "maxInjectedTasks": 6
+  "maxStrikes": 2
 }
 ```
 
@@ -91,8 +93,6 @@ Optional, at `~/.pi/agent/todo-loop.json`:
 |---|---|---|
 | `maxRounds` | `12` | continuations allowed per message to the agent |
 | `maxStrikes` | `2` | turns in a row that leave the list unchanged before stopping |
-| `injectState` | `true` | put the open-task list into each request; `false` leaves the model to read the list itself |
-| `maxInjectedTasks` | `6` | rows shown before `… and N more` |
 
 A missing or broken file falls back to these values; a bad config never fails a turn.
 
@@ -101,7 +101,7 @@ A missing or broken file falls back to these values; a bad config never fails a 
 | Command | What it does |
 |---|---|
 | `/todoloop` | status: mode, rounds, strikes, open tasks, why it last stopped, config path |
-| `/todoloop pause` | stop continuing and stop injecting, until you resume or restart |
+| `/todoloop pause` | stop continuing until you resume or restart |
 | `/todoloop resume` | allow the next turn to continue again |
 | `/todoloop reset` | clear the counters and start the budget over |
 
@@ -119,7 +119,7 @@ After a response that made no tool calls while tasks are open, `/todoloop` shoul
 ```
 todo-loop active
 rounds 1/12 · strikes 0/2
-open 2/5 tracked · inject on
+open 2/5 tracked
 anchor 4f3c1a2e
 last: continuing: round 1/12, 2 open
 config ~/.pi/agent/todo-loop.json
@@ -135,7 +135,7 @@ grep -c 'todo-loop:continue' ~/.pi/agent/sessions/<project>/*.jsonl
 
 | Symptom | What to do |
 |---|---|
-| Nothing continues | Check `/todoloop`: `DISABLED` means a kill-switch file exists, `PAUSED` means you paused it, `last: stopped: no list` means no todo tool is writing a list |
+| Nothing continues | Check `/todoloop`: `DISABLED` means a kill-switch file exists, `PAUSED` means you paused it. `last: stopped: no list` with `open 0/0 tracked` means the model has not created a list in this session; if the open count is non-zero the tool is writing a shape this extension does not read |
 | It stopped with `no progress` | The model answered twice without running a tool or changing the list. Raise `maxStrikes` if you want more attempts |
 | It stopped at the round cap | The budget for that message is spent; send another message. If the reason ends with `list unchanged for N settles`, the model was working without updating the list |
 | Rounds jump by two, or continuations appear twice | Two continuation extensions are installed; `pi list` shows them, remove one, then `/reload` |
@@ -168,7 +168,7 @@ the budget meaningless.
 
 ## Further reading
 
-- **How it behaves, precisely** — counters, markers, the injected block, cost:
+- **How it behaves, precisely** — counters, markers, strikes, cost:
   [docs/behaviour.md](docs/behaviour.md)
 - **pi API alignment** — the deliberate workarounds: [docs/pi-api-alignment.md](docs/pi-api-alignment.md)
 - **Working on the repository**: [AGENTS.md](AGENTS.md)

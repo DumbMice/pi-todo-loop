@@ -24,17 +24,11 @@ export interface LoopConfig {
 	maxRounds: number;
 	/** Consecutive no-progress turns tolerated before stopping. */
 	maxStrikes: number;
-	/** Inject the live task list at the tail of every request. */
-	injectState: boolean;
-	/** Max open tasks rendered in that injection. */
-	maxInjectedTasks: number;
 }
 
 export const DEFAULTS: LoopConfig = {
 	maxRounds: 12,
 	maxStrikes: 2,
-	injectState: true,
-	maxInjectedTasks: 6,
 };
 
 export type DecisionInput = {

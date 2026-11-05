@@ -26,11 +26,6 @@ function coerce(raw: unknown): Partial<LoopConfig> {
 	const maxStrikes = bounded(record.maxStrikes, 100);
 	if (maxStrikes !== undefined) out.maxStrikes = maxStrikes;
 
-	if (typeof record.injectState === "boolean") out.injectState = record.injectState;
-
-	const maxInjectedTasks = bounded(record.maxInjectedTasks, 50);
-	if (maxInjectedTasks !== undefined) out.maxInjectedTasks = maxInjectedTasks;
-
 	return out;
 }
 

@@ -9,11 +9,10 @@ does and how to install it, read [README.md](README.md).
 src/index.ts              pi wiring: the context hook, the turn_end hook, /todoloop
 src/loop.ts               the pure decision policy (rounds, strikes, anchor reset)
 src/state.ts              reads rpiv-todo state off the session branch
-src/inject.ts             renders the per-request <todo_loop_state> block
 src/config.ts             config load and coercion, defaults on any failure
 test/loop.test.ts         decision policy: caps, strikes, anchor reset, error outcomes
 test/state.test.ts        branch reader: both shapes, recency preference, malformed input
-test/inject.test.ts       renderer and config coercion
+test/config.test.ts       config coercion: clamps, garbage, below-1 values
 test/index.test.ts        the pi-facing half through a stub `pi`: tail handling, kill switch, caps
 test/state-machine.test.ts the counters as a table of event sequences (the suite to extend)
 test/helpers/harness.ts   the stub `pi`, mutable branch and scripted context those two share
@@ -21,7 +20,7 @@ test/fixture.test.ts      the same hooks over real captured lines (test/fixtures
 test/docs.test.ts         pins the version table, invariant map, reason table, config table, links
 scripts/check-pack.mjs    asserts the published tarball contains what package.json promises
 docs/pi-api-alignment.md  every deliberate workaround over pi's documented extension API
-docs/behaviour.md         how it behaves, precisely: markers, counters, the block, cost
+docs/behaviour.md         how it behaves, precisely: markers, counters, strikes, cost
 README.md                 user-facing documentation (what it is, install, config, troubleshooting)
 AGENTS.md                 this file
 CONTRIBUTING.md           four-line pointer to this file (GitHub convention)
@@ -64,32 +63,30 @@ These are the invariants the suite protects. Changing one means changing its tes
 README text, the matching `docs/pi-api-alignment.md` item (or marking that item inapplicable), and
 adding a `CHANGELOG.md` line — all in the same commit.
 
-- **Merge only into a `user` or `custom` tail.** pi rebuilds `bashExecution`/`branchSummary`/
-  `compactionSummary` content from their own fields and ignores `content`, so merging into those would
-  delete the block; they get a separate message and a documented adjacency (register item 15).
 - **A `todo`-only clear is announced, not policed.** The loop's success and failure states are the same
   observable; a warning is the most it may do about it.
-- **Task text is model-authored, so it is sanitised, not interpolated.** `sanitizeLabel` collapses
-  flattens every Unicode line terminator, escapes `<`, drops controls/bidi/unpaired surrogates and
-  truncates by code point, because a subject can come from a fetched page and is rendered at the end of
-  a request inside a tag. **`status` is task-authored too** and gets the same treatment. Never render a
-  task field raw.
-- **A marker is kept only where it separates two assistant turns.** There it is the alternation glue;
-  removing it exposes consecutive assistant messages that alternation-requiring providers reject. Any
-  other marker — at the tail, or followed by a human message — is dropped, because it would duplicate a
-  real user turn. The test `no returned request ever contains two adjacent user-role messages` is the
-  general statement; if you change the filter, run it first.
-- **The marker body is constant** (`<todo_loop_continue/>`). It carries no round counter, because a
+- **The extension never writes task text into a request.** The list reaches the model only through
+  the `todo` tool's own results. Nothing here renders a subject, a status or an id, so there is no
+  escaping to get wrong and no way for a task subject to forge an instruction. Keep it that way: a
+  future "show the list in the prompt" feature reintroduces the whole sanitiser.
+- **The `context` hook may remove a marker and must never add anything.** A marker is dropped when
+  either non-marker neighbour is user-role (next to a human message, or in a run), because there it
+  would project to `user → user`. A marker at the tail is the nudge and always stays: dropping it
+  would leave the continuation ending on an assistant turn, which pi refuses to continue from. The
+  test `no returned request ever contains two adjacent user-role messages` is the general statement;
+  if you change the filter, run it first.
+- **The marker body is constant** — one fixed instruction sentence, `MARKER_BODY` in `src/index.ts`. It carries no round counter, because a
   persisted marker must not claim the loop is on round `n` long after that chain ended. Counters live in
   memory and are reported by `/todoloop`.
-- **The injection is conditional; the marker is not.** The block is appended only when `injectState` is
-  on and tasks are open. The non-assistant constraint is pi's `turn_end` projection check, not the
-  request (register item 3) — do not re-derive a coupling between the two.
+- **The only agent-facing text is the nudge.** One fixed sentence, appended once per continuation.
+  No state block, no reminder, no per-request rewrite: the list is the agent's to read with the todo
+  tool. The non-assistant constraint is pi's `turn_end` projection check, not the request (register
+  item 3) — do not re-derive a coupling between the two.
 - **One entry per continuation is a floor, not a choice.** pi has no `resume()` that appends nothing.
   Do not try to reach zero entries; keep the single `custom_message` with `display: false`.
 - **The marker `customType` is a stable literal.** The tail check must keep recognising markers written
   by earlier builds; do not derive it from the package name or version.
-- **Task state is read from the branch on every request.** No in-memory cache of the list, no
+- **Task state is read from the branch on every turn.** No in-memory cache of the list, no
   `session_compact` resync handler: memory would drift across forks and compaction. Loop state
   (counters, anchor, pause) *is* in memory, and a restart necessarily starts a new budget.
 - **The decision is a pure function.** `decide()` in `src/loop.ts` takes a value and returns a value.
@@ -146,10 +143,6 @@ introduces an edge.
 | the anchor is the newest `role:"user"` message without a `customType` — not assistant, toolResult, our own marker, or another extension's custom user message | `anchor is the newest human message id, ignoring assistant and toolResult`, `our own projected marker never becomes the anchor`, `a user message without an id anchors on its position` |
 | `deleted` tasks leave list, open set and signature | `deleted tasks are excluded from tasks, open and signature` |
 | malformed entries degrade to the empty snapshot | `malformed or missing state degrades to the empty snapshot` |
-| config defaults survive garbage; fields are coerced | `missing or malformed config falls back to defaults`, `valid fields override, invalid ones are ignored` |
-| the reconciliation clause appears only after one continuation | `the reconciliation clause is off on the first nudge`, `the reconciliation clause appears after one continuation, update before remove`, `the block asks for reconciliation only from the second request of a chain` |
-| model-authored task text is sanitised before it enters a request | `a hostile task subject cannot break out of the tag` |
-| the injection shows open tasks only, bounded, `activeForm` for in_progress | `injection lists open tasks with their status`, `injection is bounded and reports the overflow`, `injection uses activeForm only for in_progress`, `injection tolerates an empty subject` |
 | a status change moves the signature | `signature changes when a status changes` |
 | a record with neither a label nor a status is not a task, and arrays are not tasks | `a record with neither a label nor a status is not a task`, `an array element is not a task` |
 | only a `todo` tool's own shapes are read | `a foreign custom entry or toolResult carrying tasks is ignored` |
@@ -157,22 +150,23 @@ introduces an edge.
 | ids are made distinct: a synthetic or colliding id moves to a free number, a unique real id is never renumbered | `a positional id never shadows a real one`, `duplicate ids in the source are made distinct`, `a synthetic id never renumbers a real one, even when it comes first` |
 | a task without a usable id falls back to its position | `a task without a usable id falls back to its position, not to being dropped`, `a null or empty id falls back to the position instead of colliding on 0` |
 | the newer shape wins, in either order | `the newer of a custom entry and a toolResult wins, in either order` |
-| the block is appended only when injecting, replacing a tail marker | `context strips the marker and appends the state block when tasks are open`, `a tail marker is replaced by the block, never followed by it`, `the block is appended when the tail is an assistant turn`, `the request never ends with two user-role messages` |
-| history markers are left in place; they are the alternation glue | `history markers are left alone when nothing is injected`, `history markers are left alone when injection is disabled` |
 | a malformed context payload is not rewritten | `context leaves a malformed payload alone instead of rewriting it` |
-| a task subject cannot break out of the injection tag | `a hostile task subject cannot break out of the tag` |
-| the block ends on the concession, not on a call to act | `the block ends on the concession, not on a call to act` |
-| pause stops the block as well as the continuation | `pause stops both the continuation and the steering block` |
 | either kill switch disables both hooks | `the global kill switch disables both hooks`, `the project-local kill switch disables both hooks` |
 | only a settle spends a round: tool turns cost nothing | `a turn that ran tools spends no round and appends no marker` |
 | a tool turn clears a pending strike | `tool turns clear a pending strike but never spend a round` |
 | a continuation appends one hidden `custom_message` with a constant body and preserves prior proposals | `turn_end requests one turn with a hidden marker when work is open` |
-| a user-role tail receives the block instead of a second message (marker first dropped) | `a human-role tail receives the block instead of a second user message`, `a marker after a human message still yields one user-role tail` |
 | a malformed event payload does not throw | `turn_end tolerates a malformed event payload instead of throwing` |
-| clamped and invalid config values fall back | `numbers are clamped so a typo cannot defeat the cap it configures`, `a value below 1 is treated as invalid, not as zero` |
+| clamped and invalid config values fall back | `numbers are clamped so a typo cannot defeat the cap it configures`, `a value below 1 is treated as invalid, not as zero`, `valid fields override, invalid ones are ignored` |
 | an errored or aborted turn is never continued | `turn_end stops on an errored or aborted turn and does not spend a round` |
-| the cap and pause gate the loop at the hook level | `the round cap is sticky for one human message`, `pause stops both the continuation and the steering block` |
+| the cap and pause gate the loop at the hook level | `the round cap is sticky for one human message`, `pause stops the continuation and the marker cleanup` |
+| the prompt is never rewritten with task state | `the prompt is never rewritten with task state`, `context removes a marker next to a human message and adds nothing` |
+| an ordinary request comes back untouched | `an ordinary request is not touched at all`, `a request with no markers and no continuation is never rewritten` |
+| a human's own message is never edited | `the human's own message is left exactly as sent` |
+| a marker next to a human message is removed; markers between assistant turns stay | `a marker after a human message is dropped, not merged`, `a marker between an assistant turn and a human message is dropped`, `a marker between two assistant turns is left alone` |
+| the tail marker survives as the nudge | `the tail marker is the nudge and is left alone`, `a run of markers at the tail keeps one, so the nudge survives` |
+| a real continuation request ends on a marker and gains nothing | `the context hook keeps real markers and adds nothing to the request`, `the captured markers are the shape the context hook looks for` |
 | the docs match the code | `the pi snapshot constant appears in the README and the register`, `the verification date appears in the README and the register`, `the tested rpiv-todo version is recorded in both places`, `the CHANGELOG documents the version in package.json`, `every README link target inside the repository exists`, `every test name the invariant map cites actually exists`, `every stop reason the code can report appears in the README table`, `the README configuration table states every default, not just the numbers` |
+
 
 ## Adding or changing a continuation rule
 
@@ -248,8 +242,8 @@ grep -c 'todo-loop:continue' ~/.pi/agent/sessions/<project>/*.jsonl   # one per 
 - `README.md` is for users of the extension, read top-down on npm: what it does, quick start, one
   example, when it helps and when it does not, configuration, commands, "is it working", troubleshooting,
   uninstall, requirements. No implementation inventories, no counter mechanics, no CI or release steps.
-- `docs/behaviour.md` is the depth the README links to: marker lifetime, role alternation, the injected
-  block, counter semantics, reason strings, where the list is read from, scope, cost. Technical, but
+- `docs/behaviour.md` is the depth the README links to: marker lifetime, role alternation, strikes,
+  counter semantics, reason strings, where the list is read from, scope, cost. Technical, but
   written for a user debugging behaviour rather than a contributor.
 - `docs/pi-api-alignment.md` is the register of deliberate workarounds over pi's documented extension
   API, and the record of which versions those were established against. Add an item when behaviour
