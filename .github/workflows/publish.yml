@@ -121,4 +121,9 @@ jobs:
             const notes = (end === -1 ? rest : rest.slice(0, end)).join("\n").trim();
             fs.writeFileSync("/tmp/release-notes.md", notes || `See CHANGELOG.md`);
           '
-          gh release create "v$version" --title "v$version" --notes-file /tmp/release-notes.md --verify-tag
+          # A re-run of the same tag must not fail the job because the release exists.
+          if gh release view "v$version" >/dev/null 2>&1; then
+            gh release edit "v$version" --notes-file /tmp/release-notes.md
+          else
+            gh release create "v$version" --title "v$version" --notes-file /tmp/release-notes.md --verify-tag
+          fi
