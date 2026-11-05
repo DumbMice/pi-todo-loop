@@ -43,35 +43,41 @@ test("never continues on an error or aborted turn", () => {
 	}
 });
 
-test("a text-only turn that changes nothing spends a strike, then stops", () => {
+test("a no-progress settle continues, and offers the block hint once", () => {
 	// The list is already known: this is turn 2+, not the turn that created it.
 	const known = { ...initialState(), anchor: "user-1", lastSignature: "1:pending" };
 	const first = decide(input({ toolResultCount: 0, state: known }));
-	assert.equal(first.continue, true);
-	assert.equal(first.next.strikes, 1);
+	assert.equal(first.continue, true, "a stall is never a stop");
+	assert.equal(first.next.stalled, 1);
+	assert.equal(first.hint, true, "the first repeat stop is what a blocked agent looks like");
 
 	const second = decide(input({ toolResultCount: 0, state: first.next }));
-	assert.equal(second.continue, false);
-	assert.match(second.reason, /no progress/);
+	assert.equal(second.continue, true);
+	assert.equal(second.hint, false, "offered once per stall, not on every nudge after it");
+	assert.equal(second.next.stalled, 2);
 });
-
-test("the first sighting of a list counts as progress, not a strike", () => {
+test("the first sighting of a list counts as progress, not a stall", () => {
 	// Fresh state has an empty signature, so it must not look like a no-op turn.
 	const decision = decide(input({ toolResultCount: 0 }));
-	assert.equal(decision.next.strikes, 0);
+	assert.equal(decision.next.stalled, 0);
+	assert.equal(decision.hint, false, "no hint on the first nudge of a chain");
 	assert.equal(decision.continue, true);
 });
-
-test("a list change counts as progress even with no tool results", () => {
+test("a list change clears the stall and re-arms the hint", () => {
 	const known = { ...initialState(), anchor: "user-1", lastSignature: "1:pending" };
 	const first = decide(input({ toolResultCount: 0, state: known }));
 	const second = decide(
 		input({ toolResultCount: 0, signature: "1:completed,2:pending", state: first.next }),
 	);
-	assert.equal(second.continue, true, "signature change should reset strikes");
-	assert.equal(second.next.strikes, 0);
-});
+	assert.equal(second.continue, true, "signature change should reset stalls");
+	assert.equal(second.next.stalled, 0);
+	assert.equal(second.hint, false);
 
+	const third = decide(
+		input({ toolResultCount: 0, signature: "1:completed,2:pending", state: second.next }),
+	);
+	assert.equal(third.hint, true, "the next stall is a new question");
+});
 test("round cap stops the loop", () => {
 	const state = { ...initialState(), rounds: DEFAULTS.maxRounds, anchor: "user-1", lastSignature: "1:pending" };
 	const decision = decide(input({ state }));
@@ -80,29 +86,27 @@ test("round cap stops the loop", () => {
 });
 
 test("a new human message resets the budget", () => {
-	const spent = { rounds: 7, strikes: 1, lastSignature: "1:pending", anchor: "user-1" };
+	const spent = { ...initialState(), rounds: 7, stalled: 1, hintSent: true, lastSignature: "1:pending", anchor: "user-1" };
 	const decision = decide(input({ state: spent, anchor: "user-2" }));
 	assert.equal(decision.continue, true);
 	assert.equal(decision.next.rounds, 1, "rounds must restart at 1");
-	assert.equal(decision.next.strikes, 0);
+	assert.equal(decision.next.stalled, 0);
+	assert.equal(decision.next.hintSent, false);
 	assert.equal(decision.next.anchor, "user-2");
 });
-
 test("a stop keeps the counters, so a cap stays shut for the same anchor", () => {
-	const spent = { rounds: 5, strikes: 0, lastSignature: "1:pending", anchor: "user-1" };
+	const spent = { ...initialState(), rounds: 5, anchor: "user-1", lastSignature: "1:pending" };
 	const decision = decide(input({ state: spent, openCount: 0 }));
 	assert.equal(decision.next.rounds, 5, "only a new human message resets the budget");
 	assert.equal(decision.next.anchor, "user-1");
 });
-
 test("a new human message after a stop starts a fresh budget", () => {
-	const spent = { rounds: 5, strikes: 2, lastSignature: "1:pending", anchor: "user-1" };
+	const spent = { ...initialState(), rounds: 5, stalled: 2, anchor: "user-1" };
 	const decision = decide(input({ state: spent, anchor: "user-2" }));
 	assert.equal(decision.continue, true);
 	assert.equal(decision.next.rounds, 1);
-	assert.equal(decision.next.strikes, 0);
+	assert.equal(decision.next.stalled, 0);
 });
-
 test("config caps are honoured", () => {
 	const strict = { ...DEFAULTS, maxRounds: 1 };
 	const first = decide(input({ config: strict }));
@@ -114,17 +118,19 @@ test("config caps are honoured", () => {
 	assert.match(second.reason, /round cap 1/);
 });
 
-test("strikes never exceed the cap they are measured against", () => {
+test("tool work clears the stall and re-arms the hint", () => {
+	// A tool turn is progress even when the list did not move: an agent that keeps
+	// working is not stuck, and a later stall is a new question.
 	const known = { ...initialState(), anchor: "user-1", lastSignature: "1:pending" };
-	let state = known;
-	for (let round = 0; round < 4; round += 1) {
-		state = decide(input({ toolResultCount: 0, state })).next;
-	}
-	assert.equal(state.strikes, DEFAULTS.maxStrikes, "a budget should not read 3/2");
+	const stalled = decide(input({ toolResultCount: 0, state: known }));
+	const worked = decide(input({ toolResultCount: 1, state: stalled.next }));
+	assert.equal(worked.next.stalled, 0);
+	assert.equal(worked.next.hintSent, false);
+	const again = decide(input({ toolResultCount: 0, state: worked.next }));
+	assert.equal(again.hint, true, "stalled fresh, so the hint is offered again");
 });
-
 test("a stale list stops on the cap with a reason that says so", () => {
-	const config = { ...DEFAULTS, maxRounds: 2, maxStrikes: 10 };
+	const config = { ...DEFAULTS, maxRounds: 2 };
 	let state = { ...initialState(), anchor: "user-1", lastSignature: "1:pending" };
 	for (let round = 0; round < 3; round += 1) {
 		state = decide(input({ toolResultCount: 0, state, config })).next;
@@ -133,4 +139,5 @@ test("a stale list stops on the cap with a reason that says so", () => {
 	assert.equal(decision.continue, false);
 	assert.match(decision.reason, /round cap 2 reached/);
 	assert.match(decision.reason, /list unchanged for \d+ settles/, "a stale burn must not read like healthy work");
+	assert.doesNotMatch(decision.reason, /may need a person/, "no stall clause on an ordinary cap");
 });

@@ -9,8 +9,8 @@ Keeps the [pi coding agent](https://pi.dev) working while its todo list still ha
 
 `rpiv-todo` gives the agent a task list and shows it to you. It never asks pi for another turn, so the
 agent still stops halfway and hands control back. This extension adds the turn: while tasks are open it
-keeps the agent going, puts the list back in front of the model after a compaction, and stops when you
-clear the list.
+keeps the agent going, and stops when you clear the list — or when the agent tells you it needs a
+person. It never writes the list into your prompt: the agent reads it with its own todo tool.
 
 ## Quick start
 
@@ -46,18 +46,20 @@ pi:   All 12 tasks are complete; here is what was verified …
       ← the list is clear, so the loop stops and stays stopped.
 ```
 
-It stops for three reasons, and `/todoloop` always says which:
+It stops for one of these reasons, and `/todoloop` always says which:
 
 | Why it stopped | What you see |
 |---|---|
 | the list is clear | `stopped: list is clear` — the normal ending |
-| the model stopped working the list | `stopped: 2 consecutive turns with no progress, 3 open` — two quiet turns in a row |
-| the budget is spent | `stopped: round cap 12 reached, 3 open` — 12 continuations for your one message |
+| the model said it needs a person | `waiting for you: waiting on Dana's review` — it called `todo_loop_block`; your next message resumes |
+| the budget is spent | `stopped: round cap 12 reached, 3 open` — 12 continuations for your one message; if it ends with `the agent stalled and may need a person`, ask it what it is waiting on |
+| the turn failed | `stopped: turn outcome was error` — the provider failed, or you aborted it |
 
 ## When it helps
 
 - Long, multi-step work where the agent summarises and hands back halfway.
-- Sessions long enough to be compacted — the list survives on disk, but the model loses it.
+- Sessions long enough to be compacted — the list survives on disk; the nudge is what gets the model to
+  read it again.
 - A model that runs tools but rarely updates its list. It will still be nudged; it may keep working to
   the round cap.
 
@@ -68,14 +70,15 @@ It stops for three reasons, and `/todoloop` always says which:
   after 12 continuations per message by default.
 - **You want the continuations visible.** They are silent by design.
 - **You want the agent to keep going after you said stop.** Your instruction wins; a model that reads
-  "stop" as final will hold, and those refusals cost up to 12 turns.
+  "stop" as final can say so with `todo_loop_block`, and that stops the loop immediately.
 
 It buys *liveness*, not work. A model can satisfy the loop by closing tasks, including deleting
 placeholders, and a list that is never updated looks the same as one that is finished. Clearing the list
 is the only thing that stops it, so the list has to mean something to you.
 
-The extension never edits your prompt. The only text it gives the model is a one-line nudge — *continue,
-and read or update the list with the todo tool* — so the list stays the agent's to maintain, and the
+The extension never edits your prompt. The only *variable* text it gives the model is a one-line nudge —
+*continue, and read or update the list with the todo tool* — plus one constant tool declaration
+(`todo_loop_block`, which carries no task state), so the list stays the agent's to maintain and the
 conversation stays yours.
 
 ## Configuration
@@ -84,15 +87,13 @@ Optional, at `~/.pi/agent/todo-loop.json`:
 
 ```json
 {
-  "maxRounds": 12,
-  "maxStrikes": 2
+  "maxRounds": 12
 }
 ```
 
 | Key | Default | What it does |
 |---|---|---|
 | `maxRounds` | `12` | continuations allowed per message to the agent |
-| `maxStrikes` | `2` | turns in a row that leave the list unchanged before stopping |
 
 A missing or broken file falls back to these values; a bad config never fails a turn.
 
@@ -100,10 +101,10 @@ A missing or broken file falls back to these values; a bad config never fails a 
 
 | Command | What it does |
 |---|---|
-| `/todoloop` | status: mode, rounds, strikes, open tasks, why it last stopped, config path |
+| `/todoloop` | status: mode, rounds, stalls, open tasks, whether it waits for you, why it last stopped, config path |
 | `/todoloop pause` | stop continuing until you resume or restart |
 | `/todoloop resume` | allow the next turn to continue again |
-| `/todoloop reset` | clear the counters and start the budget over |
+| `/todoloop reset` | clear the counters, the list signature and any pending `todo_loop_block` |
 
 **Kill switch** — checked before every decision:
 
@@ -118,7 +119,7 @@ After a response that made no tool calls while tasks are open, `/todoloop` shoul
 
 ```
 todo-loop active
-rounds 1/12 · strikes 0/2
+rounds 1/12 · stalled 0
 open 2/5 tracked
 anchor 4f3c1a2e
 last: continuing: round 1/12, 2 open
@@ -136,8 +137,8 @@ grep -c 'todo-loop:continue' ~/.pi/agent/sessions/<project>/*.jsonl
 | Symptom | What to do |
 |---|---|
 | Nothing continues | Check `/todoloop`: `DISABLED` means a kill-switch file exists, `PAUSED` means you paused it. `last: stopped: no list` with `open 0/0 tracked` means the model has not created a list in this session; if the open count is non-zero the tool is writing a shape this extension does not read |
-| It stopped with `no progress` | The model answered twice without running a tool or changing the list. Raise `maxStrikes` if you want more attempts |
-| It stopped at the round cap | The budget for that message is spent; send another message. If the reason ends with `list unchanged for N settles`, the model was working without updating the list |
+| The model asked for a person | It called `todo_loop_block` with a reason, so the loop is stopped until your next message. The reason appears in `/todoloop` as `waiting for you: …` |
+| It stopped at the round cap | The budget for that message is spent; send another message. `list unchanged for N settles` means the model was working without updating the list; `the agent stalled and may need a person` means it stopped without moving the list on the last round — ask what it is waiting on |
 | Rounds jump by two, or continuations appear twice | Two continuation extensions are installed; `pi list` shows them, remove one, then `/reload` |
 | The list is stale | The extension nudges, it does not write statuses. Nothing here fabricates progress |
 | A warning says the list was cleared by todo alone | Every task closed in a turn with no other tool work. Check the work before trusting it |
@@ -168,7 +169,7 @@ the budget meaningless.
 
 ## Further reading
 
-- **How it behaves, precisely** — counters, markers, strikes, cost:
+- **How it behaves, precisely** — counters, markers, stalls, cost:
   [docs/behaviour.md](docs/behaviour.md)
 - **pi API alignment** — the deliberate workarounds: [docs/pi-api-alignment.md](docs/pi-api-alignment.md)
 - **Working on the repository**: [AGENTS.md](AGENTS.md)

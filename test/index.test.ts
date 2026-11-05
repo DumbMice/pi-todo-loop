@@ -11,7 +11,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { MARKER_TYPE } from "../src/index.ts";
-import { branchWith, harness, marker, run, setHuman, task } from "./helpers/harness.ts";
+import { branchWith, callTool, harness, marker, run, setHuman, task } from "./helpers/harness.ts";
 
 test("context removes a marker next to a human message and adds nothing", async () => {
 	const h = harness(branchWith([task(1, "pending"), task(2, "in_progress")]));
@@ -227,26 +227,26 @@ test("the human's own message is left exactly as sent", async () => {
 		"a human's prompt is never rewritten",
 	);
 });
-test("tool turns clear a pending strike but never spend a round", async () => {
+test("tool turns clear the stall but never spend a round", async () => {
 	// The case this extension exists for: the model runs tools and never updates the
-	// list. Without clearing, two settles collect two strikes and it stops with
-	// "no progress" while it was working the whole time.
+	// list. Without clearing, a later settle would look like the second half of a
+	// stall the tool turns already answered.
 	const h = harness(branchWith([task(1, "pending")]));
 	const settle = { outcome: "completed", toolResults: [], entries: [] };
 	const toolTurn = { outcome: "completed", toolResults: [{ role: "toolResult" }], entries: [] };
 
 	assert.equal((await run(h, "turn_end", settle))?.continue, true, "settle 1 is free");
-	assert.equal((await run(h, "turn_end", settle))?.continue, true, "settle 2 spends strike 1");
+	assert.equal((await run(h, "turn_end", settle))?.continue, true, "settle 2 is the first stall");
 
 	for (let turn = 0; turn < 3; turn += 1) assert.equal(await run(h, "turn_end", toolTurn), undefined);
 
 	await h.commands.todoloop.handler("", h.ctx);
-	assert.match(h.notices.at(-1) as string, /rounds 2\/12 · strikes 0\/2/, "the tool turns cleared the strike");
+	assert.match(h.notices.at(-1) as string, /rounds 2\/12 · stalled 0/, "the tool turns cleared the stall");
 
 	const next = await run(h, "turn_end", settle);
-	assert.equal(next?.continue, true, "so the next settle continues instead of stopping");
+	assert.equal(next?.continue, true, "so the next settle is a stall again");
+	assert.match(next.entries.at(-1).content, /todo_loop_block/, "and it is offered the block tool");
 });
-
 test("a marker after a human message is dropped, not merged", async () => {
 	// The queued-message order: assistant, human message, marker. The marker's
 	// predecessor is a human message, so it would project to `user → user`.
@@ -315,9 +315,7 @@ test("a queued human message followed by a marker does not survive as an adjacen
 	const roles = result.messages.map((message: any) => (message.customType ? "marker" : message.role));
 	assert.deepEqual(roles, ["assistant", "user", "assistant"], "the marker is dropped and nothing is injected");
 });
-test("an aborted turn carrying tool results reports the stop and keeps the strike", async () => {
-	// Two settles first, so a strike is actually pending: a mutation that clears it
-	// before the outcome check must fail here.
+test("an aborted turn carrying tool results reports the stop and keeps the stall", async () => {
 	const h = harness(branchWith([task(1, "pending")]));
 	const settle = { outcome: "completed", toolResults: [], entries: [] };
 	await run(h, "turn_end", settle);
@@ -325,28 +323,20 @@ test("an aborted turn carrying tool results reports the stop and keeps the strik
 	const aborted = await run(h, "turn_end", { outcome: "aborted", toolResults: [{ role: "toolResult" }], entries: [] });
 	assert.equal(aborted, undefined);
 	await h.commands.todoloop.handler("", h.ctx);
-	assert.match(h.notices.at(-1) as string, /rounds 2\/12 · strikes 1\/2/);
+	assert.match(h.notices.at(-1) as string, /rounds 2\/12 · stalled 1/);
 	assert.match(h.notices.at(-1) as string, /last: stopped: turn outcome was aborted/);
 });
-
 test("a stop is announced, and a repeated reason is not announced twice", async () => {
-	const h = harness(branchWith([task(1, "pending")]), { maxRounds: 1 });
+	const h = harness(branchWith([task(1, "completed")]));
 	const settle = { outcome: "completed", toolResults: [], entries: [] };
 
-	await run(h, "turn_end", settle); // continues
-	const afterContinue = h.notices.length;
-	await run(h, "turn_end", settle); // stops on the cap
-	assert.equal(h.notices.length, afterContinue + 1, "the stop is announced");
-	assert.match(h.notices.at(-1) as string, /todo-loop: stopped: round cap 1 reached/);
+	await run(h, "turn_end", settle); // nothing to continue
+	assert.match(h.notices.at(-1) as string, /todo-loop: stopped: list is clear/);
+	const after = h.notices.length;
 
-	await run(h, "turn_end", settle); // stops on the strike budget: a different reason
-	const afterSecondStop = h.notices.length;
-	assert.match(h.notices.at(-1) as string, /no progress/);
-
-	await run(h, "turn_end", settle); // same reason again: silent
-	assert.equal(h.notices.length, afterSecondStop, "an unchanged reason is not repeated");
+	await run(h, "turn_end", settle); // same reason
+	assert.equal(h.notices.length, after, "an unchanged reason is not repeated");
 });
-
 test("a list cleared by todo calls alone is not laundered as verified work", async () => {
 	const h = harness([
 		{ type: "message", id: "user-1", message: { role: "user", content: "go" } },
@@ -396,4 +386,106 @@ test("a run of markers at the tail keeps one, so the nudge survives", async () =
 	const h = harness(branchWith([task(1, "pending")]));
 	const result = await run(h, "context", { messages: [{ role: "assistant", content: "a" }, marker(), marker()] });
 	assert.deepEqual(result.messages.map((message: any) => (message.customType ? "marker" : message.role)), ["assistant", "marker"]);
+});
+
+test("the nudge offers todo_loop_block once, after a repeat stop", async () => {
+	const h = harness(branchWith([task(1, "pending")]));
+	const settle = { outcome: "completed", toolResults: [], entries: [] };
+
+	const first = await run(h, "turn_end", settle);
+	assert.doesNotMatch(first.entries.at(-1).content, /todo_loop_block/, "a first nudge does not ask for a reason");
+
+	const second = await run(h, "turn_end", settle);
+	assert.match(second.entries.at(-1).content, /todo_loop_block/, "the repeat stop does");
+
+	const third = await run(h, "turn_end", settle);
+	assert.doesNotMatch(third.entries.at(-1).content, /todo_loop_block/, "and it is offered once, not on every nudge");
+	assert.match(third.entries.at(-1).content, /If the human's latest instruction says to stop/, "the concession still ends the nudge");
+});
+
+test("todo_loop_block stops the loop for this message and reports the reason", async () => {
+	const h = harness(branchWith([task(1, "pending")]));
+	const result = await callTool(h, "todo_loop_block", { reason: "waiting on Dana's review" });
+	assert.match(result.content[0].text, /Dana's review/, "the model is told what the human will see");
+	assert.match(h.notices.at(-1) as string, /waiting for you — waiting on Dana's review/);
+
+	assert.equal(
+		await run(h, "turn_end", { outcome: "completed", toolResults: [], entries: [] }),
+		undefined,
+		"no continuation after the block",
+	);
+	assert.equal(
+		await run(h, "context", { messages: [{ role: "assistant", content: "a" }, marker()] }),
+		undefined,
+		"and the prompt is still untouched",
+	);
+	await h.commands.todoloop.handler("", h.ctx);
+	const status = h.notices.at(-1) as string;
+	assert.match(status, /waiting: waiting on Dana's review/);
+	assert.match(status, /last: waiting for you: waiting on Dana's review/);
+});
+
+test("a block without a reason is refused and does not stop the loop", async () => {
+	const h = harness(branchWith([task(1, "pending")]));
+	const result = await callTool(h, "todo_loop_block", { reason: "   " });
+	assert.match(result.content[0].text, /needs a reason/);
+	assert.equal(
+		(await run(h, "turn_end", { outcome: "completed", toolResults: [], entries: [] }))?.continue,
+		true,
+		"the loop is still running",
+	);
+});
+
+test("the human's next message clears the block", async () => {
+	const h = harness(branchWith([task(1, "pending")]));
+	await callTool(h, "todo_loop_block", { reason: "need a decision" });
+	assert.equal(await run(h, "turn_end", { outcome: "completed", toolResults: [], entries: [] }), undefined);
+
+	setHuman(h); // the human answers: a new anchor
+	// A tool turn returns before `decide`, so it is the case that exposes a stale `last:`.
+	await run(h, "turn_end", { outcome: "completed", toolResults: [{ role: "toolResult" }], entries: [] });
+	await h.commands.todoloop.handler("", h.ctx);
+	assert.doesNotMatch(h.notices.at(-1) as string, /waiting:/, "the stale reason stops being reported");
+	assert.match(h.notices.at(-1) as string, /last: resumed by user/);
+
+	const next = await run(h, "turn_end", { outcome: "completed", toolResults: [], entries: [] });
+	assert.equal(next?.continue, true, "a new message resumes the loop");
+	assert.equal(next.entries.length, 1);
+});
+
+test("a reason is flattened to one line and bounded", async () => {
+	const h = harness(branchWith([task(1, "pending")]));
+	await callTool(h, "todo_loop_block", { reason: "a\nb\tc \u001b[31m " + "x".repeat(300) });
+	await h.commands.todoloop.handler("", h.ctx);
+	const status = h.notices.at(-1) as string;
+	const line = status.split("\n").find((entry) => entry.startsWith("waiting: ")) ?? "";
+	assert.match(line, /^waiting: a b c \[31m x+$/, "newlines, tabs and escapes are flattened");
+	assert.ok(line.length <= 215, `the reason must be bounded (${line.length})`);
+});
+
+test("a paused loop refuses todo_loop_block and stays silent", async () => {
+	const h = harness(branchWith([task(1, "pending")]));
+	await h.commands.todoloop.handler("pause", h.ctx);
+	h.notices.length = 0;
+	const result = await callTool(h, "todo_loop_block", { reason: "need you" });
+	assert.match(result.content[0].text, /not running/);
+	assert.equal(h.notices.length, 0, "a paused extension does not speak");
+});
+
+test("the kill switch also silences todo_loop_block", async () => {
+	const h = harness(branchWith([task(1, "pending")]));
+	writeFileSync(h.options.killSwitchGlobal, "");
+	const result = await callTool(h, "todo_loop_block", { reason: "need you" });
+	assert.match(result.content[0].text, /not running/);
+	assert.equal(h.notices.length, 0, "a disabled extension does not speak");
+});
+
+test("/todoloop reset clears a pending block", async () => {
+	const h = harness(branchWith([task(1, "pending")]));
+	await callTool(h, "todo_loop_block", { reason: "need you" });
+	assert.equal(await run(h, "turn_end", { outcome: "completed", toolResults: [], entries: [] }), undefined);
+
+	await h.commands.todoloop.handler("reset", h.ctx);
+	const next = await run(h, "turn_end", { outcome: "completed", toolResults: [], entries: [] });
+	assert.equal(next?.continue, true, "reset is the escape hatch, and it is a documented one");
 });

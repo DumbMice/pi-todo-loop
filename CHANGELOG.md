@@ -6,17 +6,41 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `todo_loop_block`, a tool the agent can call when it cannot proceed without a person. It takes a
+  reason, stops continuations for the rest of that message, notifies the human, and shows
+  `waiting for you: <reason>` in `/todoloop`. The human's next message resumes the loop; there is no
+  unblock call. The nudge offers this tool once per stall — on the first settle since progress that
+  did not move the list — which is the shape a blocked agent has. If that settle is the one the round
+  cap ends, the stop reason says `the agent stalled and may need a person`, so the hint is not lost.
+- `MARKER_BODY_HINT`: the same nudge plus that one clause. Both variants end on the concession that the
+  human outranks the loop.
+
 ### Removed
 
 - **The injected state block is gone.** The extension no longer writes task state into a request: no
   `<todo_loop_state>` list, no reconciliation clause, no truncation variant, no merge into a `user` or
-  `custom` tail. The only text it ever gives the model is the one-sentence nudge appended with each
+  `custom` tail. The only variable text it gives the model is the one-sentence nudge appended with each
   continuation, and that nudge now points at the todo tool instead of restating the list. Reading and
   updating the list is the agent's job; the prompt stays the human's.
 - `injectState` and `maxInjectedTasks` are gone with it. A config file that still carries them loads
   fine — unknown keys are ignored — so upgrading needs no edit.
+- `maxStrikes`. The loop no longer stops for being quiet: two no-progress settles used to end a run, and
+  a stalled agent that was waiting for a person was abandoned with "no progress". The counter is now
+  `stalled`, uncapped, and it only decides when to offer `todo_loop_block`. A `maxStrikes` key in an
+  existing config is ignored.
 - The renderer and its sanitiser (`src/inject.ts`, `test/inject.test.ts`). Config coercion moved to
   `test/config.test.ts`, because it outlived the renderer.
+
+### Upgrade notes
+
+- `maxRounds` is now the only cost knob: a model that keeps stopping without moving the list runs to
+  the cap instead of stopping at two, and each continuation re-sends the conversation.
+- A running session keeps the old build until `/reload` or a restart, and that starts a fresh budget.
+- 0.1.1 re-injected the open-task list into every request after a compaction. That is gone: the model
+  now sees the list only when it calls `todo` or is nudged, so a long session right after a compaction
+  may take one extra turn before the agent knows what is left.
 
 ### Changed
 

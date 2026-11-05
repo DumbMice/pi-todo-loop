@@ -19,6 +19,8 @@ export interface Harness {
 	branch: unknown[];
 	handlers: Record<string, Handler[]>;
 	commands: Record<string, { handler: Handler }>;
+	/** Tools the extension registered, by name — `todo_loop_block` lives here. */
+	tools: Record<string, any>;
 	notices: string[];
 	ctx: any;
 	options: { dir: string; configPath: string; killSwitchGlobal: string; killSwitchLocal: string };
@@ -60,6 +62,7 @@ export function harness(branch: unknown[], config?: Record<string, unknown>): Ha
 	const notices: string[] = [];
 	const handlers: Record<string, Handler[]> = {};
 	const commands: Record<string, { handler: Handler }> = {};
+	const tools: Record<string, any> = {};
 
 	const pi = {
 		on(name: string, handler: Handler) {
@@ -67,6 +70,9 @@ export function harness(branch: unknown[], config?: Record<string, unknown>): Ha
 		},
 		registerCommand(name: string, definition: { handler: Handler }) {
 			commands[name] = definition;
+		},
+		registerTool(definition: any) {
+			tools[definition.name] = definition;
 		},
 	};
 
@@ -84,7 +90,14 @@ export function harness(branch: unknown[], config?: Record<string, unknown>): Ha
 	};
 
 	todoLoop(pi, options);
-	return { branch, handlers, commands, notices, ctx, options };
+	return { branch, handlers, commands, tools, notices, ctx, options };
+}
+
+/** Call a registered tool the way pi does: (toolCallId, params, signal, onUpdate, ctx). */
+export async function callTool(h: Harness, name: string, params: unknown): Promise<any> {
+	const tool = h.tools[name];
+	if (!tool) throw new Error(`no tool registered as ${name}`);
+	return tool.execute("call-1", params, undefined, undefined, h.ctx);
 }
 
 export async function run(h: Harness, event: string, payload: any): Promise<any> {

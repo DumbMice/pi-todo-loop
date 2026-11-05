@@ -1,12 +1,13 @@
 /**
  * @dumbmice/pi-todo-loop — continuation driven by an rpiv-todo list.
  *
- * Pairs with `@juicesharp/rpiv-todo`; does not import or patch it. Three hooks:
+ * Pairs with `@juicesharp/rpiv-todo`; does not import or patch it. Hooks and tool:
  *
  *   context    drop a marker that would sit next to a human message, and
  *              nothing else: the prompt is never rewritten with task state
- *   turn_end   request another turn while tasks are open, bounded by
- *              maxRounds / maxStrikes (see loop.ts)
+ *   turn_end   request another turn while tasks are open, bounded by maxRounds
+ *              (see loop.ts), and stop when the agent calls todo_loop_block
+ *   todo_loop_block  the agent's "I need a person" signal, scoped to one message
  *   /todoloop  status | pause | resume | reset
  *
  * Architecture notes worth keeping in mind when changing this file:
@@ -14,9 +15,8 @@
  *   - A `turn_end` continuation must leave the final message role != assistant,
  *     so one entry is mandatory (`_buildBoundaryContext().canContinue` in pi
  *     1.5.0). We append a `custom_message` with `display: false`.
- *   - Markers are never removed from history: they sit between assistant turns and
- *     are what keep the conversation alternating. A marker at the tail is replaced
- *     by the state block, so the request ends on exactly one user message.
+ *   - Markers are never added to a request by this extension, and are only removed
+ *     when one would sit next to a human message. A marker at the tail is the nudge.
  *   - pi's non-assistant requirement binds the *persisted projection* checked at
  *     `turn_end`, not the provider request (register item 3).
  *   - The marker customType is deliberately stable: sessions created by earlier
@@ -59,6 +59,14 @@ export const MARKER_TYPE = "todo-loop:continue";
 export const MARKER_BODY =
 	"Continue with the open todo tasks; use the todo tool to read and update the list. If the human's latest instruction says to stop or limits what to do, do that instead.";
 
+/**
+ * The same nudge, offered once per stall: this is the first stop since real progress
+ * that did not move the list, which is what a blocked agent looks like. The concession
+ * stays last — the block still ends by telling the model the human outranks it.
+ */
+export const MARKER_BODY_HINT =
+	"Continue with the open todo tasks; use the todo tool to read and update the list. If you cannot proceed without a person, call todo_loop_block with the reason. If the human's latest instruction says to stop or limits what to do, do that instead.";
+
 export const CONFIG_PATH = join(homedir(), ".pi/agent/todo-loop.json");
 const KILL_SWITCH_GLOBAL = join(homedir(), ".pi/agent/todo-loop-off");
 
@@ -97,12 +105,81 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 		}
 	};
 
-	const state: LoopState & { paused: boolean; reason: string; lastOpenCount: number } = {
+	const state: LoopState & {
+		paused: boolean;
+		reason: string;
+		lastOpenCount: number;
+		/** Set by `todo_loop_block`: this message waits for a human. */
+		waiting: { reason: string; anchor: string } | null;
+	} = {
 		...initialState(),
 		paused: false,
 		reason: "idle",
 		lastOpenCount: 0,
+		waiting: null,
 	};
+
+	// The agent's own exit. A blocked agent looks exactly like a lazy one from the
+	// loop's side, so the loop cannot detect it — but the agent can say so. One
+	// sentence of state, scoped to this message: the human's next message resumes.
+	pi.registerTool({
+		name: "todo_loop_block",
+		label: "Block the todo loop",
+		description:
+			"Stop the automatic continuation loop for the rest of this message because you need a person: a decision, a review, a credential or information only the human has. The human is shown your reason and their next message resumes the loop. Use it only when you cannot proceed on the open tasks without them.",
+		parameters: {
+			type: "object",
+			properties: {
+				reason: { type: "string", description: "What you need from the human, in one sentence." },
+			},
+			required: ["reason"],
+			additionalProperties: false,
+		},
+		async execute(_id: any, params: any, _signal: any, _onUpdate: any, ctx: SessionContext) {
+			// The hooks respect the kill switch and pause; a tool must not be the one
+			// surface that keeps talking after the extension was switched off.
+			if (isDisabled(ctx) || state.paused) {
+				return {
+					content: [
+						{ type: "text", text: "The todo loop is not running in this session, so there is nothing to block." },
+					],
+					details: undefined,
+				};
+			}
+			// Model-authored and rendered in the TUI: one line, bounded, no control characters.
+			// `\p{Cc}` covers C0 and C1 (U+0085 NEL and U+009B CSI included); the slice is by
+			// code point, so a cut at the limit cannot split a surrogate pair.
+			const cleaned = String(params?.reason ?? "")
+				.replace(/\p{Cc}+/gu, " ")
+				.replace(/\s+/g, " ")
+				.trim();
+			const reason = [...cleaned].slice(0, 200).join("");
+			if (reason === "") {
+				return {
+					content: [
+						{
+							type: "text",
+							text: "todo_loop_block needs a reason: one sentence saying what you need from the human.",
+						},
+					],
+					details: undefined,
+				};
+			}
+			const snapshot = readSnapshot(branchEntries(ctx));
+			state.waiting = { reason, anchor: snapshot.anchor };
+			state.reason = `waiting for you: ${reason}`;
+			ctx.ui?.notify?.(`todo-loop: waiting for you — ${reason}`, "info");
+			return {
+				content: [
+					{
+						type: "text",
+						text: `The loop is stopped for this message; the human sees: ${reason}. Do not start other work — wait for their next message.`,
+					},
+				],
+				details: undefined,
+			};
+		},
+	});
 
 	pi.on("context", async (event: any, ctx: SessionContext) => {
 		if (isDisabled(ctx) || state.paused) return undefined;
@@ -162,10 +239,9 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 		// would be redundant — and counting it as a round spends the budget on work the
 		// loop did not cause. Only a settle (no tool results) can spend a round.
 		//
-		// A tool turn is still *work*, so it clears a pending strike: without this, a
-		// model that runs tools and never updates the list (the case this extension is
-		// for) collects two strikes across its settles and stops with "no progress"
-		// while it was working the whole time.
+		// A tool turn is *work*, so it clears the stall counter and re-arms the block
+		// hint: an agent that keeps working is not stuck, and a later stall is a new
+		// question rather than a repeat of the old one.
 		// A list that goes open -> clear in a turn whose only tool calls were `todo` is
 		// the loop's success state and its failure state at once. Never police it;
 		// just do not launder the trust: say so once.
@@ -180,13 +256,30 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 			}
 		}
 		state.lastOpenCount = snapshot.open.length;
+		// The human answered: the block belonged to the previous message.
+		if (state.waiting !== null && state.waiting.anchor !== snapshot.anchor) {
+			state.waiting = null;
+			state.reason = "resumed by user";
+		}
 
 		if (toolResultCount > 0) {
 			if (String(event?.outcome) !== "completed") {
 				state.reason = `stopped: turn outcome was ${String(event?.outcome)}`;
 				return undefined;
 			}
-			state.strikes = 0;
+			state.stalled = 0;
+			state.hintSent = false;
+			return undefined;
+		}
+
+		// The agent asked for a person. Nothing continues until the human answers; their
+		// next message is a new anchor, so the block clears itself.
+		if (state.waiting !== null && state.waiting.anchor === snapshot.anchor) {
+			const waiting = `waiting for you: ${state.waiting.reason}`;
+			if (state.reason !== waiting) {
+				state.reason = waiting;
+				ctx.ui?.notify?.(`todo-loop: ${waiting}`, "info");
+			}
 			return undefined;
 		}
 
@@ -221,7 +314,7 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 				{
 					type: "custom_message",
 					customType: MARKER_TYPE,
-					content: MARKER_BODY,
+					content: decision.hint ? MARKER_BODY_HINT : MARKER_BODY,
 					display: false,
 				},
 			],
@@ -251,7 +344,11 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 				return;
 			}
 			if (command === "reset") {
-				Object.assign(state, initialState(), { paused: state.paused, reason: "counters reset" });
+				Object.assign(state, initialState(), {
+					paused: state.paused,
+					reason: "counters reset",
+					waiting: null,
+				});
 				ctx.ui?.notify?.("todo-loop: counters reset", "info");
 				return;
 			}
@@ -269,20 +366,26 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 			}
 
 			const snapshot = readSnapshot(branchEntries(ctx));
+			const waitingNow = state.waiting !== null && state.waiting.anchor === snapshot.anchor;
 			const mode = isDisabled(ctx)
 				? "DISABLED (kill-switch present)"
 				: state.paused
 					? "PAUSED"
-					: state.reason.startsWith("stopped:")
-						? "stopped (next human message starts a new budget)"
-						: "active";
+					: waitingNow
+						? "waiting (the agent asked for you; your next message resumes)"
+						: state.reason.startsWith("stopped:")
+							? "stopped (next human message starts a new budget)"
+							: "active";
 			ctx.ui?.notify?.(
 				[
 					`todo-loop ${mode}`,
-					`rounds ${state.rounds}/${config.maxRounds} · strikes ${state.strikes}/${config.maxStrikes}`,
+					`rounds ${state.rounds}/${config.maxRounds} · stalled ${state.stalled}`,
+					// Only while it still belongs to this message: the human's next one
+					// resumes the loop even though the reason is still in memory.
+					...(waitingNow ? [`waiting: ${(state.waiting as { reason: string }).reason}`] : []),
 					`open ${snapshot.open.length}/${snapshot.tasks.length} tracked`,
 					`anchor ${snapshot.anchor || "(none)"}`,
-					`last: ${state.reason}`,
+					`last: ${waitingNow ? `waiting for you: ${(state.waiting as { reason: string }).reason}` : state.reason}`,
 					`config ${configPath}`,
 				].join("\n"),
 				"info",

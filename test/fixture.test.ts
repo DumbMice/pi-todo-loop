@@ -61,7 +61,11 @@ test("the context hook keeps real markers and adds nothing to the request", asyn
 
 	const handlers: Record<string, (event: any, ctx: any) => any> = {};
 	todoLoop(
-		{ on: (name: string, handler: any) => (handlers[name] = handler), registerCommand: () => {} },
+		{
+			on: (name: string, handler: any) => (handlers[name] = handler),
+			registerCommand: () => {},
+			registerTool: () => {},
+		},
 		{
 			configPath: "/nonexistent/todo-loop.json",
 			killSwitchGlobal: "/nonexistent/off-global",

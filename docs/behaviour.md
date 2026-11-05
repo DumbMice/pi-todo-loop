@@ -17,14 +17,14 @@ requests one more turn, so the model continues instead of handing control back.
 Two consequences follow from that being the only mechanism available:
 
 - **A continuation is a persisted entry.** pi has no "resume without appending anything", so each
-  continuation writes one `custom_message` with `display: false` and a constant body:
+  continuation writes one `custom_message` with `display: false` and one of two constant bodies:
   *"Continue with the open todo tasks; use the todo tool to read and update the list. If the human's
   latest instruction says to stop or limits what to do, do that instead."* It is invisible in the TUI,
   but it is in the session file, it is what the model reads, and it is the only text this extension
   ever adds.
 - **Only a settle spends a round.** `turn_end` fires after every assistant response, including one that
   ended in a tool call; those already cause pi's next request, so they cost nothing and write no marker.
-  A round, a strike and a marker therefore always concern a turn that would otherwise have ended the run.
+  A round, a stall and a marker therefore always concern a turn that would otherwise have ended the run.
 
 ## Markers and role alternation
 
@@ -39,14 +39,28 @@ continuation request ending on an assistant turn, which is the shape pi refuses 
 The hook returns `undefined` when nothing needs removing, so an ordinary request is passed through as
 the object it already was — not re-built, not extended.
 
-## Strikes and drift
+## Stalls, and the block tool
 
-- A **settle** whose task signature is unchanged spends a strike; a settle that changed the list resets
-  them. Two in a row stop the loop.
-- A **tool turn** clears a pending strike. Work is progress even when the list was not touched, and
-  without this a model that runs tools and never updates the list would stop with "no progress" while
-  it was working the whole time.
-- **`staleSettles`** counts settles since the list last changed, and tool turns do not clear it. It
+Nothing here stops the loop for being quiet. A model that keeps answering without moving the list is
+kept alive until the round cap, because "stuck" and "waiting for a person" look identical from the
+outside — and one of them must not be punished.
+
+- A **settle** whose task signature is unchanged increments `stalled`; a settle that changed the list
+  resets it. The counter has no cap: it decides *when to ask*, not when to give up.
+- On the first settlement since progress that finds `stalled >= 1` — one stop that did not move the
+  list — the nudge is the variant that adds *"If you cannot proceed without a person, call
+  `todo_loop_block` with the reason."* It is offered **once per stall**; tool work re-arms it, so a
+  second, separate stall after real progress is a new question.
+- A **tool turn** clears `stalled`. Work is progress even when the list was not touched.
+- **`todo_loop_block`** is the agent's own exit. It takes a reason, stores `{reason, anchor}` in memory
+  and stops continuations for that message. The human is notified, `/todoloop` shows
+  `waiting for you: <reason>`, and the human's next message is a new anchor, so the block clears itself
+  — there is no unblock call.
+- A block with an empty reason is refused, and the loop keeps running: the reason is the whole point.
+  The tool also refuses while the loop is paused or a kill switch is present, and says so, so a
+  disabled extension never notifies or writes state.
+- **`staleSettles`** counts settles since the list last changed; a tool turn that leaves the list
+  unchanged does not clear it. It
   never injects anything and never stops anything: it only decorates the reason string
   (`, list unchanged for N settles`) so a burn through the round cap does not read like healthy work.
 - **A list cleared by `todo` calls alone is announced.** If every task goes from open to closed in a
@@ -58,17 +72,17 @@ the object it already was — not re-built, not extended.
 | Counter | Meaning | Reset by |
 |---|---|---|
 | `rounds` | continuations spent for the current human message | a new human message, `/todoloop reset`, a new process |
-| `strikes` | settles in a row that left the list unchanged | the list changing, a completed tool turn, a new human message |
+| `stalled` | settles in a row that left the list unchanged — no cap; it decides when the block hint is offered | the list changing, a completed tool turn, a new human message |
 | `staleSettles` | settles since the list last changed | the list changing, a new human message |
 
 - **One budget per human message.** A user-role message carrying a `customType` (this extension's
   marker, another extension's hidden message) is skipped when choosing the anchor, so it does not reset
   the budget; `/todoloop` prints the anchor it is using.
-- **A stop keeps the budget shut.** Hitting the cap or the strike limit does not clear the counters, so
+- **A stop keeps the budget shut.** Hitting the cap does not clear the counters, so
   another extension's continuation or a provider retry under the same message cannot re-arm 12 rounds.
   A queued human message is a new anchor and resets the budget the ordinary way.
-- **A stale list stops on the cap, not on strikes**, because any tool turn clears the strike budget.
-  That is why the cap reason appends `, list unchanged for N settles`.
+- **A stale list stops on the cap**, never earlier: any tool turn clears the stall. That is why the cap
+  reason appends `, list unchanged for N settles`.
 - **Errors do not close the budget.** A turn that ends `error` or `aborted` stops the loop for that turn
   and spends no round; the counters are left as they are, so the next settle under the same message can
   continue — which is what a provider retry hits.
@@ -85,12 +99,12 @@ the object it already was — not re-built, not extended.
 | `continuing: round 1/12, 2 open` | working as intended |
 | `stopped: list is clear` | every remaining task is `completed`; a list whose tasks are all `deleted` reports `no list` instead |
 | `stopped: no list` | no recognised todo state on the branch — see the five causes below |
-| `stopped: 2 consecutive turns with no progress, 2 open` | the last two settles ran no tool and left the list unchanged |
-| `stopped: round cap 12 reached, 2 open` | the budget is spent; with `, list unchanged for N settles` appended, the model worked without updating the list |
+| `waiting for you: waiting on Dana's review` | the agent called `todo_loop_block`; your next message resumes |
+| `stopped: round cap 12 reached, 2 open` | the budget is spent; `, list unchanged for N settles` means it worked without updating the list, `, the agent stalled and may need a person` means the last round was one stop that did not move the list |
 | `stopped: turn outcome was error` / `aborted` | the provider failed, or you aborted the turn |
 | `paused by user` | `/todoloop pause`; `/todoloop resume` or restart |
-| `resumed by user` | `/todoloop resume`; the next settle may continue |
-| `counters reset` | `/todoloop reset` cleared the rounds, strikes and list signature |
+| `resumed by user` | `/todoloop resume`, or the human's next message clearing a pending block; the next settle may continue |
+| `counters reset` | `/todoloop reset` cleared the rounds, stalls, list signature and any pending block |
 | `idle` | nothing has run yet in this process |
 
 ## Where the list comes from
@@ -136,7 +150,7 @@ task `deleted`.
 
 Invalid config never fails a turn: missing, unreadable or invalid values fall back to the defaults.
 That includes values below `1` — `"maxRounds": 0` means "use 12", not "never continue". Numbers are
-clamped so a typo cannot defeat the cap it configures: `maxRounds` ≤ 1000, `maxStrikes` ≤ 100.
+clamped so a typo cannot defeat the cap it configures: `maxRounds` ≤ 1000.
 
 ## Cost
 
@@ -144,8 +158,9 @@ clamped so a typo cannot defeat the cap it configures: `maxRounds` ≤ 1000, `ma
   number of continuations × session size. `maxRounds` caps continuations, not turns — tool turns are
   pi's own and unbounded, so a long tool-heavy stretch can be many turns for one round. That is the
   dominant term.
-- The extension adds one short marker per continuation (~40 tokens) and nothing else: no list in the
-  prompt, no per-request block. Whatever the model needs it reads with the `todo` tool, and that result
+- The extension adds one short marker per continuation (~40 tokens) plus one constant tool declaration
+  (`todo_loop_block`, a few hundred characters of description and schema) that pi puts in every
+  request. Neither carries task state, and there is no per-request block. Whatever the model needs it reads with the `todo` tool, and that result
   is part of its own conversation rather than a parallel copy.
 - `context` walks the branch and returns `undefined` unless a marker actually has to be removed, so on
   a normal turn it costs one projection pass. `turn_end` reads the config, probes the kill switches and

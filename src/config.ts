@@ -23,9 +23,6 @@ function coerce(raw: unknown): Partial<LoopConfig> {
 	const maxRounds = bounded(record.maxRounds, 1_000);
 	if (maxRounds !== undefined) out.maxRounds = maxRounds;
 
-	const maxStrikes = bounded(record.maxStrikes, 100);
-	if (maxStrikes !== undefined) out.maxStrikes = maxStrikes;
-
 	return out;
 }
 

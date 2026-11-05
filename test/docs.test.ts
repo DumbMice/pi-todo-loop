@@ -65,7 +65,13 @@ test("every test name the invariant map cites actually exists", () => {
 	const titles = new Set<string>();
 	for (const file of readdirSync(new URL("../test/", import.meta.url))) {
 		if (!file.endsWith(".test.ts")) continue;
-		for (const match of read(`../test/${file}`).matchAll(/test\("([^"]+)"/g)) titles.add(match[1]);
+		const source = read(`../test/${file}`);
+		for (const match of source.matchAll(/test\("([^"]+)"/g)) titles.add(match[1]);
+		// `state-machine.test.ts` names its cases from the scenario table, so its titles
+		// are template literals the regex above cannot see. Rebuild them the same way.
+		if (file === "state-machine.test.ts") {
+			for (const match of source.matchAll(/name: "([^"]+)"/g)) titles.add(`state machine: ${match[1]}`);
+		}
 	}
 
 	const map = AGENTS.slice(AGENTS.indexOf("## Invariant → test map"), AGENTS.indexOf("## Adding or changing"));
@@ -73,7 +79,7 @@ test("every test name the invariant map cites actually exists", () => {
 		.split("\n")
 		.filter((line) => line.startsWith("|") && !line.startsWith("| Invariant") && !isSeparator(line));
 	// Pinned exactly: a row that disappears must fail here, not merely lower the count.
-	assert.equal(rows.length, 36, `invariant map row count changed (${rows.length}); update this number when you add a row`);
+	assert.equal(rows.length, 48, `invariant map row count changed (${rows.length}); update this number when you add a row`);
 
 	const cited: string[] = [];
 	for (const row of rows) {
@@ -89,12 +95,14 @@ test("every test name the invariant map cites actually exists", () => {
 });
 
 test("every stop reason the code can report appears in the README table", () => {
-	// Only lines that produce a reason: `reason:`, `state.reason =`, `stop(...)`,
-	// `resetRun(...)`. UI notices are not reasons and must not be required here.
+	// Only lines that *produce* a reason: a literal `reason: \`…\``, an assignment
+	// `state.reason = …`, or `stop(state, …)`. A property named `reason` in a tool
+	// schema or a `reason: decision.reason` pass-through is not a reason string, and a
+	// line merely mentioning the word must not drag its strings into this check.
 	const lines = [read("../src/loop.ts"), read("../src/index.ts")]
 		.join("\n")
 		.split("\n")
-		.filter((line) => /reason|resetRun\(|stop\([A-Za-z]+,/.test(line));
+		.filter((line) => /(?:state\.)?reason\s*[:=]\s*[`"']|stop\([A-Za-z]+,/.test(line));
 
 	const fragments = new Set<string>();
 	for (const line of lines) {

@@ -7,13 +7,15 @@ versions that was established against.
 |---|---|---|
 | `@earendil-works/pi-coding-agent` | **1.5.0** | `PI_API_SNAPSHOT` in `src/index.ts` |
 | `@juicesharp/rpiv-todo` | **2.15.0** | this file (item 12) |
-| Node | 22.23.2 | README *Tested against* |
+| Node | 22.23.2 | README *Requirements* |
 
 Last verified **2026-11-04**. Bump a row here, its constant where one exists, and the README table in
 the same commit as the change that depends on it.
 
 The contract is followed where it is documented: `turn_end` boundary proposals, draft entry types,
-`context` hook ownership of the message list, `display: false`, and `registerCommand`. Nothing here
+`context` hook ownership of the message list, `display: false`, `registerCommand`, and `registerTool`
+with a hand-written JSON-schema `parameters` object (pi validates any JSON Schema; the `typebox`
+import in the docs is a convenience, and avoiding it keeps this package dependency-free). Nothing here
 calls pi internals; item 1 nonetheless depends on behaviour pi documents nowhere, which is why it is
 listed below rather than assumed.
 
@@ -69,7 +71,7 @@ full. Items that produce no signal in the transcript are marked _(silent)_.
 9. **`sendUserMessage` and `Agent.prompt` are deliberately not used.** `sendUserMessage` would add a
    visible user-role message per continuation and pollute the transcript; calling the agent directly
    bypasses `AgentSession` lifecycle handling (busy state, queuing, retry, abort).
-10. **The kill switch is checked in both hooks, not once at load.** Removing it or creating the file
+10. **The kill switch is checked in both hooks and in the block tool, not once at load.** Removing it or creating the file
    takes effect on the next request, without `/reload`.
 11. **No dependency on `@earendil-works/pi-coding-agent`, and no peer declaration for it.** Nothing
     here imports the package: the boundary is typed `pi: any` and contexts are typed structurally
@@ -113,7 +115,7 @@ full. Items that produce no signal in the transcript are marked _(silent)_.
 14. **The loop's counters are not reconstructible from the session file** _(silent)_. A `turn_end`
     handler is handed `outcome`, `entries` and `continue`; what a `-p`/JSON run persists for the event
     carries only `{type, message, toolResults}`. A session file therefore shows which continuations happened and
-    when, not how many rounds or strikes were left, nor why the loop stopped; that is only visible live
+    when, not how many rounds or stalls were left, nor why the loop stopped; that is only visible live
     through `/todoloop`. Two runs that end for different reasons can look identical on disk.
 
 15. _(Inapplicable since the state block was removed.)_ Three user-role tails —

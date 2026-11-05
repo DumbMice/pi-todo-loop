@@ -10,9 +10,10 @@
  * Vocabulary, matching pi's behaviour:
  *
  *   settle  an assistant response with no tool calls — the only turn that can end
- *           the run, and so the only turn that can spend a round or a strike
+ *           the run, and so the only turn that can spend a round or a stall
  *   tool    an assistant response that ended in tool calls — pi requests the next
- *           turn itself; costs no round, writes no marker, clears a strike
+ *           turn itself; costs no round, writes no marker, clears the stall
+ *   block   the agent called todo_loop_block — the loop stops until a human replies
  *   edit    the todo list changed (a tool call that updated it)
  *   human   a new message from the person, which resets the budget
  *
@@ -22,7 +23,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { branchWith, harness, killSwitch, run, setHuman, setTasks, task, type Harness } from "./helpers/harness.ts";
+import { branchWith, callTool, harness, killSwitch, run, setHuman, setTasks, task, type Harness } from "./helpers/harness.ts";
 import { MARKER_TYPE } from "../src/index.ts";
 
 type Step =
@@ -36,13 +37,14 @@ type Step =
 	| { do: "resume" }
 	| { do: "reset" }
 	| { do: "killSwitch"; on: boolean }
-	| { do: "clear" };
+	| { do: "clear" }
+	| { do: "block"; reason?: string };
 
 interface Expected {
 	continuations: number;
 	markers: number;
 	rounds: number;
-	strikes: number;
+	stalled: number;
 	reason: RegExp;
 	mode: RegExp;
 }
@@ -53,7 +55,7 @@ interface Outcome {
 	/** Markers appended over the whole sequence. */
 	markers: number;
 	rounds: number;
-	strikes: number;
+	stalled: number;
 	/** The `last:` line `/todoloop` prints at the end. */
 	reason: string;
 	/** The header `/todoloop` prints at the end. */
@@ -118,6 +120,9 @@ async function play(h: Harness, step: Step): Promise<StepResult> {
 		case "clear":
 			setTasks(h, ALL_DONE);
 			return { continued: false, markers: 0 };
+		case "block":
+			await callTool(h, "todo_loop_block", { reason: step.reason ?? "waiting on a review" });
+			return { continued: false, markers: 0 };
 	}
 }
 
@@ -133,13 +138,13 @@ async function playAll(scenario: Scenario): Promise<Outcome> {
 
 	await h.commands.todoloop.handler("", h.ctx);
 	const status = h.notices.at(-1) as string;
-	const counters = status.match(/rounds (\d+)\/\d+ · strikes (\d+)\/\d+/);
+	const counters = status.match(/rounds (\d+)\/\d+ · stalled (\d+)/);
 	const reason = status.match(/last: (.*)/)?.[1] ?? status;
 	return {
 		continuations,
 		markers,
 		rounds: Number(counters?.[1] ?? -1),
-		strikes: Number(counters?.[2] ?? -1),
+		stalled: Number(counters?.[2] ?? -1),
 		reason,
 		mode: status.split("\n")[0],
 	};
@@ -149,15 +154,15 @@ const SCENARIOS: Scenario[] = [
 	{
 		name: "ideal run: every settle changes the list, then it clears",
 		steps: [{ do: "edit", tasks: ONE_DONE }, { do: "edit", tasks: [task(1, "completed"), task(2, "completed")] }],
-		expect: { continuations: 1, markers: 1, rounds: 1, strikes: 0, reason: /stopped: list is clear/, mode: /stopped/ },
+		expect: { continuations: 1, markers: 1, rounds: 1, stalled: 0, reason: /stopped: list is clear/, mode: /stopped/ },
 	},
 	{
-		name: "prose-only model: second no-change settle stops the loop",
+		name: "prose-only model: repeated settles never stop it; the cap does",
 		steps: [{ do: "settle" }, { do: "settle" }, { do: "settle" }],
-		expect: { continuations: 2, markers: 2, rounds: 2, strikes: 2, reason: /no progress/, mode: /stopped/ },
+		expect: { continuations: 3, markers: 3, rounds: 3, stalled: 2, reason: /continuing: round 3/, mode: /active/ },
 	},
 	{
-		name: "stale list with tool work: strikes are cleared, the cap stops it",
+		name: "stale list with tool work: the stall is cleared, the cap stops it",
 		config: { maxRounds: 3 },
 		steps: [
 			{ do: "settle" },
@@ -170,7 +175,7 @@ const SCENARIOS: Scenario[] = [
 			{ do: "tool" },
 			{ do: "settle" },
 		],
-		expect: { continuations: 3, markers: 3, rounds: 3, strikes: 1, reason: /round cap 3/, mode: /stopped/ },
+		expect: { continuations: 3, markers: 3, rounds: 3, stalled: 1, reason: /round cap 3/, mode: /stopped/ },
 	},
 	{
 		name: "a tool turn spends no round and writes no marker",
@@ -182,49 +187,93 @@ const SCENARIOS: Scenario[] = [
 			{ do: "settle" },
 			{ do: "settle" },
 		],
-		expect: { continuations: 2, markers: 2, rounds: 2, strikes: 1, reason: /continuing: round 2\/2/, mode: /active/ },
+		expect: { continuations: 2, markers: 2, rounds: 2, stalled: 1, reason: /continuing: round 2\/2/, mode: /active/ },
 	},
 	{
 		name: "cap stays shut across a repeated settle under the same message",
 		config: { maxRounds: 1 },
 		steps: [{ do: "settle" }, { do: "settle" }, { do: "settle" }],
-		expect: { continuations: 1, markers: 1, rounds: 1, strikes: 2, reason: /no progress/, mode: /stopped/ },
+		expect: {
+			continuations: 1,
+			markers: 1,
+			rounds: 1,
+			stalled: 2,
+			reason: /round cap 1 reached, 2 open, list unchanged for \d+ settles, the agent stalled and may need a person/,
+			mode: /stopped/,
+		},
 	},
 	{
 		name: "a new human message starts a new budget after a cap stop",
 		config: { maxRounds: 1 },
 		steps: [{ do: "settle" }, { do: "settle" }, { do: "human" }, { do: "settle" }],
-		expect: { continuations: 2, markers: 2, rounds: 1, strikes: 0, reason: /continuing: round 1\/1/, mode: /active/ },
+		expect: { continuations: 2, markers: 2, rounds: 1, stalled: 0, reason: /continuing: round 1\/1/, mode: /active/ },
 	},
 	{
 		name: "pause freezes the counters and resume lets the next settle continue",
 		steps: [{ do: "settle" }, { do: "pause" }, { do: "settle" }, { do: "resume" }, { do: "settle" }],
-		expect: { continuations: 2, markers: 2, rounds: 2, strikes: 1, reason: /continuing: round 2/, mode: /active/ },
+		expect: { continuations: 2, markers: 2, rounds: 2, stalled: 1, reason: /continuing: round 2/, mode: /active/ },
 	},
 	{
-		name: "reset clears a strike stop and lets the loop continue again",
+		name: "reset clears the counters and restarts the budget",
 		steps: [{ do: "settle" }, { do: "settle" }, { do: "settle" }, { do: "reset" }, { do: "settle" }],
-		expect: { continuations: 3, markers: 3, rounds: 1, strikes: 0, reason: /continuing: round 1/, mode: /active/ },
+		expect: { continuations: 4, markers: 4, rounds: 1, stalled: 0, reason: /continuing: round 1/, mode: /active/ },
 	},
 	{
 		name: "an errored settle stops without spending a round, and the next settle can continue",
 		steps: [{ do: "settle" }, { do: "error" }, { do: "edit", tasks: ONE_DONE }],
-		expect: { continuations: 2, markers: 2, rounds: 2, strikes: 0, reason: /continuing: round 2/, mode: /active/ },
+		expect: { continuations: 2, markers: 2, rounds: 2, stalled: 0, reason: /continuing: round 2/, mode: /active/ },
 	},
 	{
 		name: "an aborted settle stops the loop and keeps the counters",
 		steps: [{ do: "settle" }, { do: "aborted" }],
-		expect: { continuations: 1, markers: 1, rounds: 1, strikes: 0, reason: /turn outcome was aborted/, mode: /stopped/ },
+		expect: { continuations: 1, markers: 1, rounds: 1, stalled: 0, reason: /turn outcome was aborted/, mode: /stopped/ },
 	},
 	{
 		name: "the kill switch stops continuations and keeps the counters",
 		steps: [{ do: "settle" }, { do: "killSwitch", on: true }, { do: "settle" }, { do: "killSwitch", on: false }],
-		expect: { continuations: 1, markers: 1, rounds: 1, strikes: 0, reason: /continuing: round 1/, mode: /active/ },
+		expect: { continuations: 1, markers: 1, rounds: 1, stalled: 0, reason: /continuing: round 1/, mode: /active/ },
+	},
+	{
+		name: "the agent asks for a person: the loop stops until the human answers",
+		steps: [{ do: "settle" }, { do: "block" }, { do: "settle" }, { do: "human" }, { do: "settle" }],
+		expect: {
+			continuations: 2,
+			markers: 2,
+			rounds: 1,
+			stalled: 0,
+			reason: /continuing: round 1/,
+			mode: /active/,
+		},
+	},
+	{
+		name: "a block survives pause and resume, and reset clears it",
+		steps: [{ do: "block" }, { do: "pause" }, { do: "resume" }, { do: "settle" }, { do: "reset" }, { do: "settle" }],
+		expect: {
+			continuations: 1,
+			markers: 1,
+			rounds: 1,
+			stalled: 0,
+			reason: /continuing: round 1/,
+			mode: /active/,
+		},
+	},
+	{
+		name: "the block call's tool turn costs no round, and the settle after it stops",
+		config: { maxRounds: 3 },
+		steps: [{ do: "tool" }, { do: "block" }, { do: "tool" }, { do: "settle" }, { do: "settle" }],
+		expect: {
+			continuations: 0,
+			markers: 0,
+			rounds: 0,
+			stalled: 0,
+			reason: /waiting for you: waiting on a review/,
+			mode: /waiting/,
+		},
 	},
 	{
 		name: "a cleared list stops immediately and reports it",
 		steps: [{ do: "settle" }, { do: "clear" }, { do: "settle" }],
-		expect: { continuations: 1, markers: 1, rounds: 1, strikes: 0, reason: /stopped: list is clear/, mode: /stopped/ },
+		expect: { continuations: 1, markers: 1, rounds: 1, stalled: 0, reason: /stopped: list is clear/, mode: /stopped/ },
 	},
 ];
 
@@ -233,7 +282,7 @@ for (const scenario of SCENARIOS) {
 		const outcome = await playAll(scenario);
 		assert.equal(outcome.continuations, scenario.expect.continuations, "continuations proposed");
 		assert.equal(outcome.rounds, scenario.expect.rounds, "rounds left");
-		assert.equal(outcome.strikes, scenario.expect.strikes, "strikes left");
+		assert.equal(outcome.stalled, scenario.expect.stalled, "stalls left");
 		assert.equal(outcome.markers, scenario.expect.markers, "markers written");
 		assert.match(outcome.reason, scenario.expect.reason, `last reason: ${outcome.reason}`);
 		assert.match(outcome.mode, scenario.expect.mode, `status header: ${outcome.mode}`);

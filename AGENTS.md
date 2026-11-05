@@ -7,10 +7,10 @@ does and how to install it, read [README.md](README.md).
 
 ```
 src/index.ts              pi wiring: the context hook, the turn_end hook, /todoloop
-src/loop.ts               the pure decision policy (rounds, strikes, anchor reset)
+src/loop.ts               the pure decision policy (rounds, stalls, hint, anchor reset)
 src/state.ts              reads rpiv-todo state off the session branch
 src/config.ts             config load and coercion, defaults on any failure
-test/loop.test.ts         decision policy: caps, strikes, anchor reset, error outcomes
+test/loop.test.ts         decision policy: cap, stalls, hint, anchor reset, error outcomes
 test/state.test.ts        branch reader: both shapes, recency preference, malformed input
 test/config.test.ts       config coercion: clamps, garbage, below-1 values
 test/index.test.ts        the pi-facing half through a stub `pi`: tail handling, kill switch, caps
@@ -19,8 +19,10 @@ test/helpers/harness.ts   the stub `pi`, mutable branch and scripted context tho
 test/fixture.test.ts      the same hooks over real captured lines (test/fixtures/branch.jsonl)
 test/docs.test.ts         pins the version table, invariant map, reason table, config table, links
 scripts/check-pack.mjs    asserts the published tarball contains what package.json promises
+scripts/pack-json.mjs     reads `npm pack --json` in both shapes (array, object)
+test/pack-json.test.ts    pins both shapes
 docs/pi-api-alignment.md  every deliberate workaround over pi's documented extension API
-docs/behaviour.md         how it behaves, precisely: markers, counters, strikes, cost
+docs/behaviour.md         how it behaves, precisely: markers, counters, stalls, the block tool, cost
 README.md                 user-facing documentation (what it is, install, config, troubleshooting)
 AGENTS.md                 this file
 CONTRIBUTING.md           four-line pointer to this file (GitHub convention)
@@ -75,12 +77,14 @@ adding a `CHANGELOG.md` line — all in the same commit.
   would leave the continuation ending on an assistant turn, which pi refuses to continue from. The
   test `no returned request ever contains two adjacent user-role messages` is the general statement;
   if you change the filter, run it first.
-- **The marker body is constant** — one fixed instruction sentence, `MARKER_BODY` in `src/index.ts`. It carries no round counter, because a
-  persisted marker must not claim the loop is on round `n` long after that chain ended. Counters live in
-  memory and are reported by `/todoloop`.
-- **The only agent-facing text is the nudge.** One fixed sentence, appended once per continuation.
-  No state block, no reminder, no per-request rewrite: the list is the agent's to read with the todo
-  tool. The non-assistant constraint is pi's `turn_end` projection check, not the request (register
+- **The marker body is one of two constants** — `MARKER_BODY` (plain) and `MARKER_BODY_HINT` (plain
+  plus the `todo_loop_block` clause), both in `src/index.ts`. A third variant is a design decision, not
+  a convenience. Neither carries a round counter, because a persisted marker must not claim the loop is
+  on round `n` long after that chain ended. Counters live in memory and are reported by `/todoloop`.
+- **The only *variable* agent-facing text is the nudge.** One of two fixed sentences, appended once
+  per continuation. No state block, no reminder, no per-request rewrite: the list is the agent's to
+  read with the todo tool. The tool declaration (`todo_loop_block`) is constant and carries no task
+  state, but it is in every request — count it in cost claims. The non-assistant constraint is pi's `turn_end` projection check, not the request (register
   item 3) — do not re-derive a coupling between the two.
 - **One entry per continuation is a floor, not a choice.** pi has no `resume()` that appends nothing.
   Do not try to reach zero entries; keep the single `custom_message` with `display: false`.
@@ -93,13 +97,15 @@ adding a `CHANGELOG.md` line — all in the same commit.
   It must stay free of pi, filesystem and time so the caps can be tested exhaustively.
 - **Only a settle spends a round.** `turn_end` fires for every assistant response, including one that
   ended in a tool call; those already cause pi's next request, so the hook returns before deciding. A
-  round, a marker and a strike are therefore always about a turn that would have ended the run.
-- **A tool turn clears a strike and spends no round** — except a tool turn that ends `error`/`aborted`,
-  which records the stop and leaves the strike budget alone. Tool turns already cause pi's next request, so
-  they must not consume the budget; but they are work, so they reset `strikes`. Without that, a model
-  that runs tools and never updates the list collects two strikes across its settles and stops claiming
-  "no progress" while it was working.
-- **A stop keeps the counters; only a new human message resets them.** Clearing `rounds` / `strikes` on
+  round, a marker and a stall are therefore always about a turn that would have ended the run.
+- **A tool turn clears the stall and spends no round** — except a tool turn that ends `error`/`aborted`,
+  which records the stop and leaves the counter alone. Tool turns already cause pi's next request, so
+  they must not consume a round; but they are work, so they reset `stalled` and re-arm the block hint.
+- **Nothing stops the loop for being quiet.** There is no strike limit: `stalled` decides only when the
+  nudge offers `todo_loop_block`, once per stall, and tool work re-arms it. A blocked agent and a lazy
+  one are indistinguishable from here, so the agent is asked rather than judged; the only stops are a
+  clear list, the round cap, an error, and the human's own `todo_loop_block` call.
+- **A stop keeps the counters; only a new human message resets them.** Clearing `rounds` / `stalled` on
   stop re-arms a full budget on the next `turn_end` under the same anchor (another extension's
   continuation, a provider retry). The anchor comparison is the only *automatic* reset;
   `/todoloop reset` and process start clear the counters explicitly. A queued human message is a
@@ -117,7 +123,7 @@ adding a `CHANGELOG.md` line — all in the same commit.
   continues, but the loop would then stop silently — inert is better than loud.
 - **Nothing is written.** No files, no network, no process execution. The only reads are the optional
   config, the two kill-switch paths and the session branch.
-- **The kill switch is checked in both hooks.** Disabling takes effect on the next request, without
+- **The kill switch is checked in both hooks and in `todo_loop_block`'s `execute`.** Disabling takes effect on the next request, without
   `/reload`.
 - **No pi type import; `pi: any` at the registration boundary.** Contexts the file reads are typed
   structurally (`SessionContext`). Adding the pi types would make a dependency out of a package that
@@ -132,9 +138,9 @@ introduces an edge.
 |---|---|
 | continues only while items are open | `continues while work is open and the turn did work`, `stops when the list is clear`, `stops when there is no list at all` |
 | error and aborted outcomes never continue | `never continues on an error or aborted turn` |
-| a no-progress turn spends a strike, the second stops | `a text-only turn that changes nothing spends a strike, then stops` |
-| the first sighting of a list is progress, not a strike | `the first sighting of a list counts as progress, not a strike` |
-| a list change resets strikes even with no tool call | `a list change counts as progress even with no tool results` |
+| a no-progress settle never stops the loop; the block hint is offered once per stall | `a no-progress settle continues, and offers the block hint once` |
+| the first sighting of a list is progress, not a stall | `the first sighting of a list counts as progress, not a stall` |
+| a list change clears the stall and re-arms the hint | `a list change clears the stall and re-arms the hint` |
 | the round cap stops the loop | `round cap stops the loop`, `config caps are honoured` |
 | a new human message resets the budget | `a new human message resets the budget` |
 | a stop keeps the counters for the anchor, and a new message clears them | `a stop keeps the counters, so a cap stays shut for the same anchor`, `a new human message after a stop starts a fresh budget`, `the round cap is sticky for one human message` |
@@ -153,7 +159,19 @@ introduces an edge.
 | a malformed context payload is not rewritten | `context leaves a malformed payload alone instead of rewriting it` |
 | either kill switch disables both hooks | `the global kill switch disables both hooks`, `the project-local kill switch disables both hooks` |
 | only a settle spends a round: tool turns cost nothing | `a turn that ran tools spends no round and appends no marker` |
-| a tool turn clears a pending strike | `tool turns clear a pending strike but never spend a round` |
+| a tool turn clears the stall and re-arms the hint | `tool turns clear the stall but never spend a round` |
+| the block hint is offered once per stall, on the repeat stop | `the nudge offers todo_loop_block once, after a repeat stop` |
+| `todo_loop_block` stops the loop and reports the reason | `todo_loop_block stops the loop for this message and reports the reason` |
+| a block without a reason is refused | `a block without a reason is refused and does not stop the loop` |
+| the human's next message clears the block | `the human's next message clears the block` |
+| the block stops the loop and the next human message resumes it, end to end | `state machine: the agent asks for a person: the loop stops until the human answers` |
+| a block survives pause and resume, and reset clears it | `state machine: a block survives pause and resume, and reset clears it`, `/todoloop reset clears a pending block` |
+| the block's tool turn costs no round, and no marker is written after it | `state machine: the block call's tool turn costs no round, and the settle after it stops` |
+| a model-authored reason is flattened and bounded | `a reason is flattened to one line and bounded` |
+| the kill switch silences the block tool too | `the kill switch also silences todo_loop_block` |
+| a paused loop refuses the block tool and stays silent | `a paused loop refuses todo_loop_block and stays silent` |
+| a stall clause that lands on the cap round is reported, not dropped | `state machine: cap stays shut across a repeated settle under the same message`, `a stale list stops on the cap with a reason that says so` |
+| the next human message clears the block and the stale `last:` | `the human's next message clears the block` |
 | a continuation appends one hidden `custom_message` with a constant body and preserves prior proposals | `turn_end requests one turn with a hidden marker when work is open` |
 | a malformed event payload does not throw | `turn_end tolerates a malformed event payload instead of throwing` |
 | clamped and invalid config values fall back | `numbers are clamped so a typo cannot defeat the cap it configures`, `a value below 1 is treated as invalid, not as zero`, `valid fields override, invalid ones are ignored` |
@@ -187,7 +205,7 @@ Ranked by how easily a small change breaks them.
 1. **Two different tails.** A continuation whose *persisted projection* ends on an assistant message is
    rejected by pi (`canContinue`); the *request* has no such constraint but must keep role alternation.
    Conflating the two produced the round-2 marker leak. `test/index.test.ts` pins both shapes.
-2. **Counter lifecycle.** `rounds`, `strikes` and `anchor` are mutated in one place and reset in three
+2. **Counter lifecycle.** `rounds`, `stalled` and `anchor` are mutated in one place and reset in three
    (anchor change, `/todoloop reset`, process start). A missing reset either loops forever or refuses to
    continue after one bad turn; a reset in the wrong place (inside `stop()`) silently re-arms the cap.
 3. **The anchor.** It must be human-authored and never empty. `#<index>` is the fallback when an entry
@@ -211,7 +229,7 @@ network. `test/state-machine.test.ts` is the one to extend when you touch the co
 the vocabulary pi actually produces — `settle` (a response with no tool calls), `tool` (a response that
 ended in tool calls), `edit` (the list changed), `human` (a new message), plus pause/resume/reset/
 error/abort/kill-switch — and asserts the whole outcome at once: continuations, markers, rounds,
-strikes, the reason `/todoloop` prints and its header. Every release-blocking defect in this repository's
+stalls, the block tool, the reason `/todoloop` prints and its header. Every release-blocking defect in this repository's
 history lived in that interaction, so a new rule belongs there as a row in `SCENARIOS` before it belongs
 in prose.
 
@@ -242,13 +260,13 @@ grep -c 'todo-loop:continue' ~/.pi/agent/sessions/<project>/*.jsonl   # one per 
 - `README.md` is for users of the extension, read top-down on npm: what it does, quick start, one
   example, when it helps and when it does not, configuration, commands, "is it working", troubleshooting,
   uninstall, requirements. No implementation inventories, no counter mechanics, no CI or release steps.
-- `docs/behaviour.md` is the depth the README links to: marker lifetime, role alternation, strikes,
+- `docs/behaviour.md` is the depth the README links to: marker lifetime, role alternation, stalls,
   counter semantics, reason strings, where the list is read from, scope, cost. Technical, but
   written for a user debugging behaviour rather than a contributor.
 - `docs/pi-api-alignment.md` is the register of deliberate workarounds over pi's documented extension
   API, and the record of which versions those were established against. Add an item when behaviour
   deviates; items with no output signal are marked _(silent)_. The tested-version table at the top,
-  `PI_API_SNAPSHOT` in `src/index.ts`, and the README *Tested against* table move together in the
+  `PI_API_SNAPSHOT` in `src/index.ts`, and the README *Requirements* section move together in the
   same commit as the change that depends on them, and `test/docs.test.ts` fails if the constant, the
   date or the tested rpiv-todo version goes missing from either file. Note that `@juicesharp/rpiv-todo`
   is a *shape* dependency only (register item 12): it is never imported, so it has no `package.json`
@@ -281,7 +299,7 @@ and read the pi changelog for `custom_message`, `display`, `canContinue`, plus r
 - **The decision is at `turn_end`, one boundary early.** pi 1.5.0 documents `agent_before_settle` as
   the final actionable boundary that can append entries and request one continuation, and at
   `turn_end` the hook has to reconstruct "the run would otherwise end" from `toolResults.length === 0`.
-  The consequence is a bounded wasted round when a human message is queued mid-turn, and the strike
+  The consequence is a bounded wasted round when a human message is queued mid-turn, and the stall
   reset lives in the adapter rather than in `decide()`. Moving the decision is the 0.2.0 change; it must
   ship with a CHANGELOG line because it changes which turns spend a round.
 - **`getBranch()` is not the model-visible context** (register item 16): after compaction the panel can

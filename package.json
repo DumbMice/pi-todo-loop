@@ -1,7 +1,7 @@
 {
 	"name": "@dumbmice/pi-todo-loop",
 	"version": "0.1.1",
-	"description": "Keep pi working while a todo list still has open tasks, and keep that list in context across compaction.",
+	"description": "Keep pi working while a todo list still has open tasks, and stop when the agent asks for a person.",
 	"type": "module",
 	"license": "MIT",
 	"author": {
