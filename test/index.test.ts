@@ -436,3 +436,15 @@ test("a list cleared alongside real tool work is not announced", async () => {
 	await run(h, "turn_end", { outcome: "completed", toolResults: [{ toolName: "todo" }, { toolName: "bash" }], entries: [] });
 	assert.equal(h.notices.length, before, "real work needs no warning");
 });
+
+test("the block asks for reconciliation only from the second request of a chain", async () => {
+	const h = harness(branchWith([task(1, "pending")]));
+	const first = await run(h, "context", { messages: [{ role: "assistant", content: "a" }] });
+	assert.doesNotMatch(first.messages.at(-1).content[0].text, /drifted from the work/);
+
+	// One settle → one continuation, so the next request is no longer the first sighting.
+	await run(h, "turn_end", { outcome: "completed", toolResults: [], entries: [] });
+
+	const second = await run(h, "context", { messages: [{ role: "assistant", content: "a" }] });
+	assert.match(second.messages.at(-1).content[0].text, /drifted from the work/);
+});

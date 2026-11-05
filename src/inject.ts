@@ -52,7 +52,26 @@ export function sanitizeLabel(text: string): string {
 	return points.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "").trim();
 }
 
-export function renderInjection(snapshot: Snapshot, config: LoopConfig): string {
+export interface InjectionOptions {
+	/**
+	 * Add the reconciliation clause. Off for the first nudge of a chain, on afterwards:
+	 * handing a model an explicit "fix the list" instruction on its first sighting
+	 * invites it to reshape the list instead of doing the work, while after one nudge a
+	 * drifted list is the likelier explanation.
+	 */
+	reconcile?: boolean;
+}
+
+const RECONCILE_CLAUSE = [
+	"If this list has drifted from the work, reconcile it now: update statuses,",
+	"add what is missing, and remove what no longer applies.",
+].join("\n");
+
+export function renderInjection(
+	snapshot: Snapshot,
+	config: LoopConfig,
+	options: InjectionOptions = {},
+): string {
 	const shown = snapshot.open.slice(0, config.maxInjectedTasks);
 	const rows = shown.map(
 		(task) =>
@@ -72,6 +91,7 @@ export function renderInjection(snapshot: Snapshot, config: LoopConfig): string 
 		"with the open tasks, and move a task to in_progress when you start it and to",
 		"completed only once it is actually verified — if a task cannot be verified now,",
 		"leave it open and say what is blocking it.",
+		...(options.reconcile ? [RECONCILE_CLAUSE] : []),
 		`</${INJECT_TAG}>`,
 	].join("\n");
 }

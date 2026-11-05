@@ -48,6 +48,9 @@ Initial release.
 - The continuation marker's constant body states the instruction ("Continue with the open todo
   tasks…") instead of a self-closing tag, so `injectState: false` no longer continues with no
   instruction at all, and a marker left in history is self-explanatory.
+- The injected block escalates once: from the first continuation onwards it asks the model to
+  reconcile a drifted list (update statuses, add what is missing, remove what no longer applies —
+  in that order), which gives a stale list a deterministic exit short of burning the round cap.
 - A list that goes open → closed in a turn whose only tool results were `todo` is announced once: the
   loop's success state and its failure state are the same observable.
 - A stale-list burn now says so: the round-cap reason appends `, list unchanged for N settles`.

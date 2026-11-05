@@ -165,3 +165,21 @@ test("an unpaired surrogate in the payload is dropped, not forwarded", () => {
 	assert.equal(sanitizeLabel("\udc00"), "");
 	assert.doesNotMatch(sanitizeLabel("x\ud83d"), /[\uD800-\uDBFF]$/);
 });
+
+test("the reconciliation clause is off on the first nudge", () => {
+	const text = renderInjection(snapshotFrom([{ id: 1, status: "pending", subject: "a" }]), DEFAULTS);
+	assert.doesNotMatch(text, /drifted from the work/, "a first sighting must not invite reshaping the list");
+});
+
+test("the reconciliation clause appears after one continuation, update before remove", () => {
+	const text = renderInjection(snapshotFrom([{ id: 1, status: "pending", subject: "a" }]), DEFAULTS, {
+		reconcile: true,
+	});
+	assert.match(text, /If this list has drifted from the work, reconcile it now/);
+	// Order matters: "remove" must not be the first instruction the model reads.
+	const clause = text.slice(text.indexOf("If this list has drifted"));
+	assert.ok(clause.indexOf("update statuses") < clause.indexOf("add what is missing"));
+	assert.ok(clause.indexOf("add what is missing") < clause.indexOf("remove what no longer applies"));
+	const lines = text.split("\n");
+	assert.equal(lines.at(-1), `</${INJECT_TAG}>`, "the tag still closes the block");
+});

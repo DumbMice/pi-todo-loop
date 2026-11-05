@@ -147,6 +147,7 @@ introduces an edge.
 | `deleted` tasks leave list, open set and signature | `deleted tasks are excluded from tasks, open and signature` |
 | malformed entries degrade to the empty snapshot | `malformed or missing state degrades to the empty snapshot` |
 | config defaults survive garbage; fields are coerced | `missing or malformed config falls back to defaults`, `valid fields override, invalid ones are ignored` |
+| the reconciliation clause appears only after one continuation | `the reconciliation clause is off on the first nudge`, `the reconciliation clause appears after one continuation, update before remove`, `the block asks for reconciliation only from the second request of a chain` |
 | model-authored task text is sanitised before it enters a request | `a hostile task subject cannot break out of the tag` |
 | the injection shows open tasks only, bounded, `activeForm` for in_progress | `injection lists open tasks with their status`, `injection is bounded and reports the overflow`, `injection uses activeForm only for in_progress`, `injection tolerates an empty subject` |
 | a status change moves the signature | `signature changes when a status changes` |

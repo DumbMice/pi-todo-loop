@@ -52,6 +52,12 @@ compaction cannot remove it.
 - **The ids are the todo tool's own**, except where the stored list supplies an unusable or duplicate
   id: that row moves to a free number so each row can be addressed, which means a `todo` call using the
   shown number can fail when the tool wrote the list that way.
+- **The block escalates once.** On the first request of a chain it only asks for status
+  moves; from the first continuation onwards it adds a reconciliation clause — *"if this
+  list has drifted from the work, reconcile it now: update statuses, add what is missing,
+  and remove what no longer applies"* — with removal last. A first sighting should not
+  invite reshaping the list; after a nudge that left the list untouched, a drifted list is
+  the likelier explanation. Verified: 115 tests, including both sides of the gate.
 - **A list cleared by `todo` calls alone is announced.** If every task goes from open to closed in a
   turn whose only tool results were `todo`, a warning says so once. The loop's success state and its
   failure state are the same observable.

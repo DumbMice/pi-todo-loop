@@ -125,7 +125,7 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 		// alternation-requiring providers reject. So markers stay in history; only a
 		// marker sitting at the tail (the continuation request about to be made) is
 		// replaced by the state block, so the request never ends on user → user.
-		const text = { type: "text", text: renderInjection(snapshot, config) };
+		const text = { type: "text", text: renderInjection(snapshot, config, { reconcile: state.rounds >= 1 }) };
 		const record = (message: unknown): Record<string, unknown> | null =>
 			typeof message === "object" && message !== null ? (message as Record<string, unknown>) : null;
 		const isMarker = (message: unknown): boolean => record(message)?.customType === MARKER_TYPE;
