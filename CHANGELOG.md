@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-11-04
+
+### Added
+
+- The injected block escalates once: from the first continuation of a chain it asks the model to
+  reconcile a drifted list — update statuses, add what is missing, remove what no longer applies, in
+  that order — so a stale list has an exit short of burning the round cap. The first request of a
+  chain still only asks for status moves.
+
+### Fixed
+
+- The publish workflow survives a stale registry read: it asks for the version three times before
+  concluding it is absent, and treats a `previously published` refusal as success. It also reads
+  `npm pack --json` in both shapes (npm 10 returns an array, npm 11 an object keyed by package name),
+  which is what failed the first two publish runs before they could upload.
+
 ## [0.1.0] - 2026-11-04
 
 Initial release.

@@ -1,6 +1,6 @@
 {
 	"name": "@dumbmice/pi-todo-loop",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Keep pi working while a todo list still has open tasks, and keep that list in context across compaction.",
 	"type": "module",
 	"license": "MIT",
