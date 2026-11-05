@@ -15,7 +15,6 @@ const REQUIRED = [
 	"src/index.ts",
 	"src/loop.ts",
 	"src/state.ts",
-	"src/inject.ts",
 	"src/config.ts",
 	"docs/pi-api-alignment.md",
 	"README.md",
