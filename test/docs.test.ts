@@ -79,7 +79,7 @@ test("every test name the invariant map cites actually exists", () => {
 		.split("\n")
 		.filter((line) => line.startsWith("|") && !line.startsWith("| Invariant") && !isSeparator(line));
 	// Pinned exactly: a row that disappears must fail here, not merely lower the count.
-	assert.equal(rows.length, 48, `invariant map row count changed (${rows.length}); update this number when you add a row`);
+	assert.equal(rows.length, 49, `invariant map row count changed (${rows.length}); update this number when you add a row`);
 
 	const cited: string[] = [];
 	for (const row of rows) {

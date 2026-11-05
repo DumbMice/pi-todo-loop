@@ -489,3 +489,20 @@ test("/todoloop reset clears a pending block", async () => {
 	const next = await run(h, "turn_end", { outcome: "completed", toolResults: [], entries: [] });
 	assert.equal(next?.continue, true, "reset is the escape hatch, and it is a documented one");
 });
+
+test("the block tool declares a prompt snippet and a self-naming guideline", async () => {
+	// The stub `pi` never renders a prompt, so this pins the declaration pi needs — a
+	// non-empty snippet (pi filters `<tools>` on it) and a guideline that names its tool
+	// (pi appends guidelines flat). Whether they render is checked by the release canary.
+	const h = harness(branchWith([task(1, "pending")]));
+	const tool = h.tools.todo_loop_block;
+	assert.ok(tool, "the tool must be registered");
+	assert.match(tool.promptSnippet, /stop/i, "a snippet is what opts the tool into <tools>");
+	assert.match(tool.promptSnippet, /this message/, "the scope: the block ends at the next message");
+
+	const guidelines: string[] = tool.promptGuidelines ?? [];
+	const guideline = guidelines[0] ?? "";
+	assert.ok(guideline.includes("todo_loop_block"), "a guideline must name its tool in pi's flat <rules>");
+	assert.match(guideline, /do not use it/i, "the prohibition must be pinned, not only the recommendation");
+	assert.match(guideline, /pick the reasonable option/i, "and the alternative to blocking");
+});

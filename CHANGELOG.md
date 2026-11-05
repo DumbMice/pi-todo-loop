@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- `todo_loop_block` now declares a `promptSnippet` and a `promptGuidelines` bullet, so pi lists it in the
+  system prompt's `<tools>` section and its guideline in `<rules>`. Before this the tool was in the
+  request's tool array but absent from the prompt summary, so an agent could only find it through the
+  nudge. The guideline also tells the model to pick a reasonable option and state its assumption when a
+  choice is its own, rather than asking a person.
+
 ## [0.2.0] - 2026-11-05
 
 ### Added

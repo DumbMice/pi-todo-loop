@@ -71,7 +71,10 @@ full. Items that produce no signal in the transcript are marked _(silent)_.
 9. **`sendUserMessage` and `Agent.prompt` are deliberately not used.** `sendUserMessage` would add a
    visible user-role message per continuation and pollute the transcript; calling the agent directly
    bypasses `AgentSession` lifecycle handling (busy state, queuing, retry, abort).
-10. **The kill switch is checked in both hooks and in the block tool, not once at load.** Removing it or creating the file
+10. **The kill switch is checked in both hooks and in the block tool, not once at load.** It cannot
+    withdraw the tool's prompt entry: pi renders `<tools>`/`<rules>` from the registration, so a
+    disabled session still shows an exit whose call is then refused with "not running". Removing it
+    would need `pi.setActiveTools` from a hook — a new coupling we did not take for this. Removing it or creating the file
    takes effect on the next request, without `/reload`.
 11. **No dependency on `@earendil-works/pi-coding-agent`, and no peer declaration for it.** Nothing
     here imports the package: the boundary is typed `pi: any` and contexts are typed structurally

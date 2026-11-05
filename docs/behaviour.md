@@ -52,8 +52,10 @@ outside — and one of them must not be punished.
   `todo_loop_block` with the reason."* It is offered **once per stall**; tool work re-arms it, so a
   second, separate stall after real progress is a new question.
 - A **tool turn** clears `stalled`. Work is progress even when the list was not touched.
-- **`todo_loop_block`** is the agent's own exit. It takes a reason, stores `{reason, anchor}` in memory
-  and stops continuations for that message. The human is notified, `/todoloop` shows
+- **`todo_loop_block`** is the agent's own exit. It is advertised in the prompt from the first turn —
+  pi lists it in `<tools>` and carries its guideline in `<rules>`, because the tool declares a
+  `promptSnippet` — and the nudge is the timed offer, not the only way to learn it exists. It takes a
+  reason, stores `{reason, anchor}` in memory and stops continuations for that message. The human is notified, `/todoloop` shows
   `waiting for you: <reason>`, and the human's next message is a new anchor, so the block clears itself
   — there is no unblock call.
 - A block with an empty reason is refused, and the loop keeps running: the reason is the whole point.
@@ -158,9 +160,11 @@ clamped so a typo cannot defeat the cap it configures: `maxRounds` ≤ 1000.
   number of continuations × session size. `maxRounds` caps continuations, not turns — tool turns are
   pi's own and unbounded, so a long tool-heavy stretch can be many turns for one round. That is the
   dominant term.
-- The extension adds one short marker per continuation (~40 tokens) plus one constant tool declaration
-  (`todo_loop_block`, a few hundred characters of description and schema) that pi puts in every
-  request. Neither carries task state, and there is no per-request block. Whatever the model needs it reads with the `todo` tool, and that result
+- The extension adds one short marker per continuation (~40 tokens), plus one constant tool declaration
+  and the prompt entries pi derives from it — `<tools>` line, `<rules>` guideline, description and
+  schema, roughly 700 characters together, in every request. None of it carries task state, and there
+  is no per-request block. Neither the snippet nor the guideline is gated by the kill switch or
+  `/todoloop pause`; only the hooks and the call itself are. Whatever the model needs it reads with the `todo` tool, and that result
   is part of its own conversation rather than a parallel copy.
 - `context` walks the branch and returns `undefined` unless a marker actually has to be removed, so on
   a normal turn it costs one projection pass. `turn_end` reads the config, probes the kill switches and

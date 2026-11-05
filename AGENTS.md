@@ -84,7 +84,11 @@ adding a `CHANGELOG.md` line — all in the same commit.
 - **The only *variable* agent-facing text is the nudge.** One of two fixed sentences, appended once
   per continuation. No state block, no reminder, no per-request rewrite: the list is the agent's to
   read with the todo tool. The tool declaration (`todo_loop_block`) is constant and carries no task
-  state, but it is in every request — count it in cost claims. The non-assistant constraint is pi's `turn_end` projection check, not the request (register
+  state, but it is in every request — count it in cost claims: the declaration plus the one-line
+  `<tools>` snippet and the `<rules>` guideline it earns (a few hundred characters together). It
+  declares a `promptSnippet` and a guideline that names it, because pi only shows a tool in the
+  prompt's `<tools>` list when a snippet exists; without one the exit is in the tool array but absent
+  from that summary. The non-assistant constraint is pi's `turn_end` projection check, not the request (register
   item 3) — do not re-derive a coupling between the two.
 - **One entry per continuation is a floor, not a choice.** pi has no `resume()` that appends nothing.
   Do not try to reach zero entries; keep the single `custom_message` with `display: false`.
@@ -123,7 +127,9 @@ adding a `CHANGELOG.md` line — all in the same commit.
   continues, but the loop would then stop silently — inert is better than loud.
 - **Nothing is written.** No files, no network, no process execution. The only reads are the optional
   config, the two kill-switch paths and the session branch.
-- **The kill switch is checked in both hooks and in `todo_loop_block`'s `execute`.** Disabling takes effect on the next request, without
+- **The kill switch is checked in both hooks and in `todo_loop_block`'s `execute`.** It cannot remove
+  the tool from the prompt: pi builds `<tools>`/`<rules>` from the registration, so a disabled session
+  still advertises an exit that will be refused. Disabling takes effect on the next request, without
   `/reload`.
 - **No pi type import; `pi: any` at the registration boundary.** Contexts the file reads are typed
   structurally (`SessionContext`). Adding the pi types would make a dependency out of a package that
@@ -169,6 +175,7 @@ introduces an edge.
 | the block's tool turn costs no round, and no marker is written after it | `state machine: the block call's tool turn costs no round, and the settle after it stops` |
 | a model-authored reason is flattened and bounded | `a reason is flattened to one line and bounded` |
 | the kill switch silences the block tool too | `the kill switch also silences todo_loop_block` |
+| the block tool declares a prompt snippet and a self-naming guideline, so pi lists it in `<tools>`/`<rules>` | `the block tool declares a prompt snippet and a self-naming guideline` |
 | a paused loop refuses the block tool and stays silent | `a paused loop refuses todo_loop_block and stays silent` |
 | a stall clause that lands on the cap round is reported, not dropped | `state machine: cap stays shut across a repeated settle under the same message`, `a stale list stops on the cap with a reason that says so` |
 | the next human message clears the block and the stale `last:` | `the human's next message clears the block` |
@@ -278,8 +285,10 @@ grep -c 'todo-loop:continue' ~/.pi/agent/sessions/<project>/*.jsonl   # one per 
 
 ## Release canary
 
-The one failure this suite cannot see is pi changing how a `display: false` `custom_message` projects,
-or tightening `canContinue`. Drafts are committed before the continuation is validated, so that change
+Two failures this suite cannot see. The first is pi changing how a `display: false` `custom_message`
+projects, or tightening `canContinue`; the second is how pi renders a custom tool into the system
+prompt, since the harness stub never builds one — a tool without a `promptSnippet` was silently dropped
+from `<tools>` in pi 1.5.0. Drafts are committed before the continuation is validated, so that change
 would persist a marker, drop the continuation, and leave `/todoloop` reporting `continuing: round n/12`
 until it reports `round cap` with zero continuations — while every test here stays green, because the
 harness drives a stub `pi`.
@@ -287,12 +296,21 @@ harness drives a stub `pi`.
 Before every version bump, on the *new* pi, run the documented live check once:
 
 ```bash
-pi -e . -p "create two todos 'a' and 'b', then reply ok" --tools todo
+# `-ne` because the released copy registers the same tool name: `pi -e .` next to the installed
+# version fails with `Tool "todo_loop_block" conflicts with …`.
+pi -ne -e . -p "create two todos 'a' and 'b', then reply ok" --tools todo
 grep -c 'todo-loop:continue' ~/.pi/agent/sessions/--<project>--/*.jsonl   # 0 is a failure
 ```
 
-and read the pi changelog for `custom_message`, `display`, `canContinue`, plus rpiv-todo's for
-`reminder` (upstream PR #190 would put a second task block in the request).
+For the prompt half, run with `--mode json` and confirm the tool reached the system prompt section:
+
+```bash
+pi -ne -e . --mode json -p "reply ok" | grep -o 'todo_loop_block: Stop the todo loop'
+```
+
+and read the pi changelog for `custom_message`, `display`, `canContinue`, `promptSnippet`,
+`promptGuidelines`, plus rpiv-todo's for `reminder` (upstream PR #190 would put a second task block in
+the request).
 
 ## Known limitations to revisit
 

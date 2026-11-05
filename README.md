@@ -77,9 +77,9 @@ placeholders, and a list that is never updated looks the same as one that is fin
 is the only thing that stops it, so the list has to mean something to you.
 
 The extension never edits your prompt. The only *variable* text it gives the model is a one-line nudge —
-*continue, and read or update the list with the todo tool* — plus one constant tool declaration
-(`todo_loop_block`, which carries no task state), so the list stays the agent's to maintain and the
-conversation stays yours.
+*continue, and read or update the list with the todo tool* — plus one constant tool declaration and the
+prompt entry pi derives from it (`todo_loop_block`; neither carries task state), so the list stays the
+agent's to maintain and the conversation stays yours.
 
 ## Configuration
 

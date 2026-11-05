@@ -127,6 +127,13 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 		label: "Block the todo loop",
 		description:
 			"Stop the automatic continuation loop for the rest of this message because you need a person: a decision, a review, a credential or information only the human has. The human is shown your reason and their next message resumes the loop. Use it only when you cannot proceed on the open tasks without them.",
+		// Without a snippet pi leaves the tool out of the prompt's `<tools>` summary; it is
+		// still in the request's tool array, but a model reading the prompt summary does not
+		// see the exit until the nudge names it. The exit must not be hidden that way.
+		promptSnippet: "Stop the todo loop for this message and ask the human for what you need",
+		promptGuidelines: [
+			"Use todo_loop_block when you cannot proceed on the open todo tasks without a person — a decision, a review, a credential or information only they have. If the choice is yours to make, pick the reasonable option and say what you assumed instead. Do not use it to end work you could finish yourself.",
+		],
 		parameters: {
 			type: "object",
 			properties: {
