@@ -72,9 +72,12 @@ invisibly either.
   unchanged does not clear it. It never injects anything and never stops anything: it only decorates
   the reason string
   (`, no todo change for N replies`) so a burn to a configured cap does not read like healthy work.
-- **A list cleared by `todo` calls alone is announced.** If every task goes from open to closed in a
-  turn whose only tool results were `todo`, a warning says so once. The loop's success state and its
-  failure state are the same observable.
+- **Deleting the list is announced; finishing it is not.** If every task goes from open to closed in a
+  turn whose only tool results were `todo`, the tasks' own statuses decide the message: tasks marked
+  `deleted` produce a warning naming the count, because the list was emptied without anything being
+  proved. Tasks marked `completed` say nothing — finishing work and ticking the boxes in one turn is
+  the normal ending. A tool result that carries no task details falls back to the vague wording, since
+  there is nothing to inspect.
 
 ## Counters
 

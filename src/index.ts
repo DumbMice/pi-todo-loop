@@ -250,17 +250,31 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 		// A tool turn is *work*, so it clears the stall counter and re-arms the block
 		// hint: an agent that keeps working is not stuck, and a later stall is a new
 		// question rather than a repeat of the old one.
-		// A list that goes open -> clear in a turn whose only tool calls were `todo` is
-		// the loop's success state and its failure state at once. Never police it;
-		// just do not launder the trust: say so once.
+		// A list that empties in a turn whose only tool calls were `todo` is the loop's success
+		// state and its failure state at once. Never police it — but do not launder the trust:
+		// say what happened, and only when something was actually thrown away. Ticking boxes
+		// after real work in an earlier turn is normal; deleting the tasks is not.
 		if (snapshot.open.length === 0 && state.lastOpenCount > 0 && toolResultCount > 0) {
 			const names = toolResults.map((result) => String((result as Record<string, unknown>)?.toolName ?? ""));
-			const onlyTodo = names.every((name) => name === "todo");
-			if (onlyTodo) {
-				ctx.ui?.notify?.(
-					"todo-loop: the list was cleared by todo calls alone in that turn — no other tool work accompanied it",
-					"warning",
-				);
+			if (names.every((name) => name === "todo")) {
+				const reported = toolResults.flatMap((result) => {
+					const details = (result as Record<string, unknown>)?.details as Record<string, unknown> | undefined;
+					return Array.isArray(details?.tasks) ? (details.tasks as Record<string, unknown>[]) : [];
+				});
+				const deleted = reported.filter((entry) => String(entry?.status ?? "") === "deleted").length;
+				// No details at all means we cannot tell: say the vague thing rather than nothing.
+				const line =
+					deleted > 0
+						? `${deleted} ${deleted === 1 ? "task was" : "tasks were"} deleted in that turn, and that is what emptied the list`
+						: reported.length > 0
+							? ""
+							: "the list was emptied by a turn that only touched todos";
+				if (line !== "") {
+					ctx.ui?.notify?.(
+						`todo-loop: ${line} — nothing was proved by it. Check the work before trusting the result.`,
+						"warning",
+					);
+				}
 			}
 		}
 		state.lastOpenCount = snapshot.open.length;

@@ -145,7 +145,7 @@ grep -c 'todo-loop:continue' ~/.pi/agent/sessions/<project>/*.jsonl
 | It stopped at the round cap | Only happens when `maxRounds` is set: the number of continuations for that message is spent; send another message. `no todo change for N replies` means it was working without updating the list; `the agent may need you` means it stopped on a stall — ask what it is waiting on |
 | Rounds jump by two, or continuations appear twice | Two continuation extensions are installed; `pi list` shows them, remove one, then `/reload` |
 | The list is stale | The extension nudges, it does not write statuses. Nothing here fabricates progress |
-| A warning says the list was cleared by todo alone | Every task closed in a turn with no other tool work. Check the work before trusting it |
+| A warning says tasks were deleted | The list was emptied by a turn that only touched todos, and tasks were deleted rather than completed. Check the work before trusting it |
 
 ## Uninstall
 

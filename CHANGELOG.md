@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- The "list was cleared by todo alone" warning now fires only when the clearing turn **deleted**
+  tasks, and names the count: finishing work and closing every task in one turn is the honest ending
+  and no longer warns. A result without task details keeps the old, vaguer wording.
 - `maxRounds` defaults to `null`: no continuation cap. The loop now ends when the list clears, the
   agent calls `todo_loop_block`, an error or abort occurs, or you pause it. Set a number to bound what
   one message of yours can cost; the value is still clamped to ≤ 1000, and a value below 1 stays

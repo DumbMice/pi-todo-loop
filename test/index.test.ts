@@ -348,24 +348,60 @@ test("a stop is announced, and a repeated reason is not announced twice", async 
 	await run(h, "turn_end", settle); // same reason
 	assert.equal(h.notices.length, after, "an unchanged reason is not repeated");
 });
-test("a list cleared by todo calls alone is not laundered as verified work", async () => {
+test("a list emptied by deleting its tasks is announced", async () => {
+	const h = harness([
+		{ type: "message", id: "user-1", message: { role: "user", content: "go" } },
+		{ type: "custom", customType: "rpiv-todo-state", id: "t1", data: { tasks: [task(1, "pending"), task(2, "in_progress")] } },
+	]);
+	await run(h, "turn_end", { outcome: "completed", toolResults: [], entries: [] });
+	const before = h.notices.length;
+	h.branch.push({
+		type: "custom",
+		customType: "rpiv-todo-state",
+		id: "t2",
+		data: { tasks: [task(1, "deleted"), task(2, "deleted")] },
+	});
+	await run(h, "turn_end", {
+		outcome: "completed",
+		toolResults: [{ toolName: "todo", details: { tasks: [task(1, "deleted"), task(2, "deleted")] } }],
+		entries: [],
+	});
+	assert.equal(h.notices.length, before + 1, "deleting the list is announced");
+	assert.match(h.notices.at(-1) as string, /2 tasks were deleted in that turn, and that is what emptied the list/);
+	assert.match(h.notices.at(-1) as string, /Check the work before trusting the result/);
+});
+
+test("a list emptied by ticking finished tasks is silent", async () => {
+	// Finishing the work in earlier turns and then closing every task in one turn is the
+	// honest ending. Warning there would fire on most healthy runs.
+	const h = harness([
+		{ type: "message", id: "user-1", message: { role: "user", content: "go" } },
+		{ type: "custom", customType: "rpiv-todo-state", id: "t1", data: { tasks: [task(1, "in_progress")] } },
+	]);
+	await run(h, "turn_end", { outcome: "completed", toolResults: [], entries: [] });
+	const before = h.notices.length;
+	h.branch.push({ type: "custom", customType: "rpiv-todo-state", id: "t2", data: { tasks: [task(1, "completed")] } });
+	await run(h, "turn_end", {
+		outcome: "completed",
+		toolResults: [{ toolName: "todo", details: { tasks: [task(1, "completed")] } }],
+		entries: [],
+	});
+	assert.equal(h.notices.length, before, "completed, not deleted: nothing to say");
+});
+
+test("a todo result with no details still says the list was emptied", async () => {
+	// Older shapes carry no task details. Stay conservative there rather than go silent.
 	const h = harness([
 		{ type: "message", id: "user-1", message: { role: "user", content: "go" } },
 		{ type: "custom", customType: "rpiv-todo-state", id: "t1", data: { tasks: [task(1, "pending")] } },
 	]);
 	await run(h, "turn_end", { outcome: "completed", toolResults: [], entries: [] });
 	const before = h.notices.length;
-	// The clear arrives in the next turn, as a real todo call would.
 	h.branch.push({ type: "custom", customType: "rpiv-todo-state", id: "t2", data: { tasks: [task(1, "completed")] } });
-	await run(h, "turn_end", {
-		outcome: "completed",
-		toolResults: [{ toolName: "todo" }],
-		entries: [],
-	});
-	assert.equal(h.notices.length, before + 1, "the suspicious clear is announced");
-	assert.match(h.notices.at(-1) as string, /cleared by todo calls alone/);
+	await run(h, "turn_end", { outcome: "completed", toolResults: [{ toolName: "todo" }], entries: [] });
+	assert.equal(h.notices.length, before + 1);
+	assert.match(h.notices.at(-1) as string, /emptied by a turn that only touched todos/);
 });
-
 test("a list cleared alongside real tool work is not announced", async () => {
 	const h = harness([
 		{ type: "message", id: "user-1", message: { role: "user", content: "go" } },
