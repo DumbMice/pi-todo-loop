@@ -199,7 +199,7 @@ const SCENARIOS: Scenario[] = [
 			markers: 1,
 			rounds: 1,
 			stalled: 2,
-			reason: /round cap 1 reached, 2 open, list unchanged for \d+ settles, the agent stalled and may need a person/,
+			reason: /round cap 1 reached, 2 open, list unchanged for \d+ settles/,
 			mode: /stopped/,
 		},
 	},

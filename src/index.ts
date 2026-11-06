@@ -60,9 +60,10 @@ export const MARKER_BODY =
 	"Continue with the open todo tasks; use the todo tool to read and update the list. If the human's latest instruction says to stop or limits what to do, do that instead.";
 
 /**
- * The same nudge, used for every settle that did not move the list — the shape a blocked
- * agent has. With no cap there is no later nudge to carry the exit, so it repeats. The
- * concession stays last: the block still ends by telling the model the human outranks it.
+ * The same nudge for the first settle since progress that did not move the list — the shape
+ * a blocked agent has. It is offered on exactly one request: repeating it would be pressure
+ * rather than information. The concession stays last, so the block still ends by telling the
+ * model the human outranks it.
  */
 export const MARKER_BODY_HINT =
 	"Continue with the open todo tasks; use the todo tool to read and update the list. If you cannot proceed without a person, call todo_loop_block with the reason. If the human's latest instruction says to stop or limits what to do, do that instead.";

@@ -43,7 +43,7 @@ test("never continues on an error or aborted turn", () => {
 	}
 });
 
-test("every no-progress settle carries the block hint", () => {
+test("only the first no-progress settle carries the block hint", () => {
 	// The list is already known: this is turn 2+, not the turn that created it.
 	const known = { ...initialState(), anchor: "user-1", lastSignature: "1:pending" };
 	const first = decide(input({ toolResultCount: 0, state: known }));
@@ -53,7 +53,7 @@ test("every no-progress settle carries the block hint", () => {
 
 	const second = decide(input({ toolResultCount: 0, state: first.next }));
 	assert.equal(second.continue, true);
-	assert.equal(second.hint, true, "every nudge that did not move the list names the exit");
+	assert.equal(second.hint, false, "one request, not a series");
 	assert.equal(second.next.stalled, 2);
 });
 test("the first sighting of a list counts as progress, not a stall", () => {
@@ -134,6 +134,7 @@ test("tool work clears the stall and re-arms the hint", () => {
 	const worked = decide(input({ toolResultCount: 1, state: stalled.next }));
 	assert.equal(worked.next.stalled, 0);
 	assert.equal(worked.hint, false, "work is not a stall, so no clause");
+	assert.equal(decide(input({ toolResultCount: 1, signature: "1:pending", state: worked.next })).hint, false);
 	const again = decide(input({ toolResultCount: 0, state: worked.next }));
 	assert.equal(again.hint, true, "stalled fresh, so the hint is offered again");
 });
@@ -147,6 +148,5 @@ test("a stale list stops on the cap with a reason that says so", () => {
 	assert.equal(decision.continue, false);
 	assert.match(decision.reason, /round cap 2 reached/);
 	assert.match(decision.reason, /list unchanged for \d+ settles/, "a stale burn must not read like healthy work");
-	assert.match(decision.reason, /may need a person/, "a cap that lands on a stall names it");
-	assert.match(decision.reason, /list unchanged for/, "and says how long it has been stale");
+	assert.doesNotMatch(decision.reason, /may need a person/, "the cap landed on the second stall, not the first");
 });

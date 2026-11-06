@@ -58,8 +58,8 @@ export interface Decision {
 	reason: string;
 	/**
 	 * True when this continuation should carry the "if you cannot proceed without a
-	 * person, call todo_loop_block" clause. Every settle that does not move the list
-	 * carries it, because with no cap there is no later nudge that will.
+	 * person, call todo_loop_block" clause: the first settle since real progress that did
+	 * not move the list. One request, not a series.
 	 */
 	hint: boolean;
 }
@@ -106,10 +106,11 @@ export function decide(input: DecisionInput): Decision {
 		current.stalled += 1;
 	}
 
-	// A stop that did not move the list is the shape a blocked agent has, so every such
-	// nudge names the exit. Nothing here stops the loop for it: the only stops are a clear
-	// list, a configured cap, an error, and the agent asking for a person.
-	const hint = current.stalled >= 1;
+	// A stop that did not move the list is the shape a blocked agent has, so the first one
+	// since real progress names the exit — exactly one request, because a model that did not
+	// answer that nudge with work or a block is not going to be argued into it by repetition.
+	// `stalled` is cleared by any tool turn or list change, so a working agent never sees it.
+	const hint = current.stalled === 1;
 
 	if (config.maxRounds !== null && current.rounds >= config.maxRounds) {
 		const stale =
