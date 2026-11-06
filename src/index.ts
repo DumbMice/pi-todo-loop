@@ -276,6 +276,8 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 				return undefined;
 			}
 			state.stalled = 0;
+			// It worked: the next stop is not a bare stall, so the hint's question changes.
+			state.toolSinceStop = true;
 			return undefined;
 		}
 

@@ -134,9 +134,13 @@ test("tool work clears the stall and re-arms the hint", () => {
 	const worked = decide(input({ toolResultCount: 1, state: stalled.next }));
 	assert.equal(worked.next.stalled, 0);
 	assert.equal(worked.hint, false, "work is not a stall, so no clause");
-	assert.equal(decide(input({ toolResultCount: 1, signature: "1:pending", state: worked.next })).hint, false);
-	const again = decide(input({ toolResultCount: 0, state: worked.next }));
-	assert.equal(again.hint, true, "stalled fresh, so the hint is offered again");
+
+	// A stop that follows a tool turn is not a bare stall: the model already answered
+	// "are you blocked?" by working, so the next stop is not asked again.
+	const afterWork = decide(input({ toolResultCount: 0, signature: "1:pending", state: { ...worked.next, toolSinceStop: true } }));
+	assert.equal(afterWork.hint, false);
+	const again = decide(input({ toolResultCount: 0, state: worked.next, signature: "1:pending" }));
+	assert.equal(again.hint, true, "a bare stop with no work in between is asked again");
 });
 test("a stale list stops on the cap with a reason that says so", () => {
 	const config = { ...DEFAULTS, maxRounds: 2 };

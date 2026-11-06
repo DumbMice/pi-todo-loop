@@ -227,7 +227,7 @@ test("the human's own message is left exactly as sent", async () => {
 		"a human's prompt is never rewritten",
 	);
 });
-test("tool turns clear the stall but never spend a round", async () => {
+test("tool turns clear the stall, spend no round, and suppress the hint for that stop", async () => {
 	// The case this extension exists for: the model runs tools and never updates the
 	// list. Without clearing, a later settle would look like the second half of a
 	// stall the tool turns already answered.
@@ -245,7 +245,11 @@ test("tool turns clear the stall but never spend a round", async () => {
 
 	const next = await run(h, "turn_end", settle);
 	assert.equal(next?.continue, true, "so the next settle is a stall again");
-	assert.match(next.entries.at(-1).content, /todo_loop_block/, "and it is offered the block tool");
+	assert.doesNotMatch(
+		next.entries.at(-1).content,
+		/todo_loop_block/,
+		"but the stop was preceded by work, so it is not asked whether it is blocked",
+	);
 });
 test("a marker after a human message is dropped, not merged", async () => {
 	// The queued-message order: assistant, human message, marker. The marker's

@@ -14,6 +14,8 @@ export interface LoopState {
 	 * it decides when to offer the block tool, not when to give up.
 	 */
 	stalled: number;
+	/** A tool turn happened since the last stop, so the next stop was not a bare stall. */
+	toolSinceStop: boolean;
 	/** Task signature at the previous decision, to detect list changes. */
 	lastSignature: string;
 	/** Settles since the list last changed: a stale list stops on the cap. */
@@ -87,7 +89,15 @@ export function decide(input: DecisionInput): Decision {
 	// A new human message owns a fresh budget.
 	let current: LoopState =
 		input.anchor !== state.anchor
-			? { ...state, rounds: 0, stalled: 0, lastSignature: "", staleSettles: 0, anchor: input.anchor }
+			? {
+					...state,
+					rounds: 0,
+					stalled: 0,
+					toolSinceStop: false,
+					lastSignature: "",
+					staleSettles: 0,
+					anchor: input.anchor,
+				}
 			: { ...state };
 
 	if (input.outcome !== "completed") {
@@ -101,16 +111,16 @@ export function decide(input: DecisionInput): Decision {
 	if (progressed) {
 		current.stalled = 0;
 		current.staleSettles = 0;
+		current.toolSinceStop = false;
 	} else {
 		current.staleSettles += 1;
 		current.stalled += 1;
 	}
 
-	// A stop that did not move the list is the shape a blocked agent has, so the first one
-	// since real progress names the exit — exactly one request, because a model that did not
-	// answer that nudge with work or a block is not going to be argued into it by repetition.
-	// `stalled` is cleared by any tool turn or list change, so a working agent never sees it.
-	const hint = current.stalled === 1;
+	// The hint asks "are you blocked?" and only one shape answers that: the model stopped, we
+	// sent one request, and it stopped again having touched nothing. A tool turn in between is
+	// an answer — it was working, not stuck — so the question is not asked again there.
+	const hint = current.stalled === 1 && !current.toolSinceStop;
 
 	if (config.maxRounds !== null && current.rounds >= config.maxRounds) {
 		const stale =
@@ -124,6 +134,7 @@ export function decide(input: DecisionInput): Decision {
 
 	current.rounds += 1;
 	current.lastSignature = input.signature;
+	current.toolSinceStop = false;
 	const of = config.maxRounds === null ? "" : `/${config.maxRounds}`;
 	return {
 		continue: true,
@@ -134,5 +145,5 @@ export function decide(input: DecisionInput): Decision {
 }
 
 export function initialState(): LoopState {
-	return { rounds: 0, stalled: 0, lastSignature: "", staleSettles: 0, anchor: "" };
+	return { rounds: 0, stalled: 0, toolSinceStop: false, lastSignature: "", staleSettles: 0, anchor: "" };
 }

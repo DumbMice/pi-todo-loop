@@ -106,7 +106,8 @@ adding a `CHANGELOG.md` line — all in the same commit.
   which records the stop and leaves the counter alone. Tool turns already cause pi's next request, so
   they must not consume a round; but they are work, so they reset `stalled` and re-arm the block hint.
 - **Nothing stops the loop for being quiet.** There is no strike limit: `stalled` decides only when the
-  nudge names `todo_loop_block` on the first settle that did not move the list, once. A blocked agent and a lazy
+  nudge names `todo_loop_block` only when the model stopped, was nudged once, and stopped again
+  having run no tool and changed nothing — work in between answers the question the hint asks. A blocked agent and a lazy
   one are indistinguishable from here, so the agent is asked rather than judged; the only stops are a
   clear list, a configured round cap, an error, the agent's `todo_loop_block`, and your own pause or
   kill switch. There is no cap by default, so a stall that never resolves warns every tenth settle
@@ -167,7 +168,7 @@ introduces an edge.
 | a malformed context payload is not rewritten | `context leaves a malformed payload alone instead of rewriting it` |
 | either kill switch disables both hooks | `the global kill switch disables both hooks`, `the project-local kill switch disables both hooks` |
 | only a settle spends a round: tool turns cost nothing | `a turn that ran tools spends no round and appends no marker` |
-| a tool turn clears the stall and re-arms the hint | `tool turns clear the stall but never spend a round` |
+| a tool turn clears the stall and suppresses the hint for that stop | `tool turns clear the stall, spend no round, and suppress the hint for that stop` |
 | only the first nudge that did not move the list names the block tool | `only the first nudge that did not move the list names todo_loop_block` |
 | `todo_loop_block` stops the loop and reports the reason | `todo_loop_block stops the loop for this message and reports the reason` |
 | a block without a reason is refused | `a block without a reason is refused and does not stop the loop` |

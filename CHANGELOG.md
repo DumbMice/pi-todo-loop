@@ -14,9 +14,10 @@ All notable changes to this project are documented here. The format follows
   unlimited rather than falling back to a default.
 - `/todoloop` says `rounds 3 (no cap)` instead of `rounds 3/12` when no cap is configured, so the
   absence of a ceiling is visible where you look.
-- The `todo_loop_block` clause is now tied to the counter instead of a flag: it rides on the **first**
-  nudge that did not move the list (`stalled === 1`) and no later one, so it is still one request, now
-  without `hintSent` state to keep in sync.
+- The `todo_loop_block` clause now rides only on the bare stall: the model stopped, got one nudge, and
+  stopped again having run no tool and changed nothing (`stalled === 1`, no tool turn since the last
+  stop). A stop that follows real work gets the plain nudge — work answers the question the clause asks
+  — and the clause is never repeated within one stall. `hintSent` is gone with it.
 - A runaway is no longer silent: every tenth settle that leaves the list unchanged, while the loop
   keeps going, raises a warning naming the count and the two brakes (`/todoloop pause`, `maxRounds`).
 

@@ -49,12 +49,12 @@ nothing raises a warning so it does not do so invisibly.
 
 - A **settle** whose task signature is unchanged increments `stalled`; a settle that changed the list
   resets it. The counter has no cap: it decides *when to ask*, not when to give up.
-- The **first** settlement since progress that does not move the list (`stalled === 1`) is the
-  variant that adds *"If you cannot proceed without a person, call
-  `todo_loop_block` with the reason."* It rides on **one** request: a model that answered that nudge
-  with neither work nor a block is not argued into it by repetition, and repeating an invitation to
-  declare itself stuck is pressure. Any tool turn or list change clears `stalled`, so a working agent
-  never sees it and a later stall is a new question.
+- **The nudge has two variants.** The plain one says continue and use the todo tool. The second adds
+  *"If you cannot proceed without a person, call `todo_loop_block` with the reason."*, and is used for
+  exactly one shape: the model stopped, we sent one request, and it stopped again **having run no tool
+  and changed nothing** (`stalled === 1` with no tool turn since the last stop). A tool turn in between
+  is an answer — it was working, not stuck — so that stop gets the plain nudge, and the clause is never
+  repeated inside one stall.
 - A **tool turn** clears `stalled`. Work is progress even when the list was not touched.
 - **`todo_loop_block`** is the agent's own exit. It is advertised in the prompt from the first turn —
   pi lists it in `<tools>` and carries its guideline in `<rules>`, because the tool declares a
@@ -66,8 +66,8 @@ nothing raises a warning so it does not do so invisibly.
   The tool also refuses while the loop is paused or a kill switch is present, and says so, so a
   disabled extension never notifies or writes state.
 - **`staleSettles`** counts settles since the list last changed; a tool turn that leaves the list
-  unchanged does not clear it. It
-  never injects anything and never stops anything: it only decorates the reason string
+  unchanged does not clear it. It never injects anything and never stops anything: it only decorates
+  the reason string
   (`, list unchanged for N settles`) so a burn to a configured cap does not read like healthy work.
 - **A list cleared by `todo` calls alone is announced.** If every task goes from open to closed in a
   turn whose only tool results were `todo`, a warning says so once. The loop's success state and its
