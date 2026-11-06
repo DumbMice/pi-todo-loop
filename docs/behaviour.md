@@ -71,7 +71,7 @@ invisibly either.
 - **`staleSettles`** counts settles since the list last changed; a tool turn that leaves the list
   unchanged does not clear it. It never injects anything and never stops anything: it only decorates
   the reason string
-  (`, list unchanged for N settles`) so a burn to a configured cap does not read like healthy work.
+  (`, no todo change for N replies`) so a burn to a configured cap does not read like healthy work.
 - **A list cleared by `todo` calls alone is announced.** If every task goes from open to closed in a
   turn whose only tool results were `todo`, a warning says so once. The loop's success state and its
   failure state are the same observable.
@@ -92,7 +92,7 @@ invisibly either.
   another extension's continuation or a provider retry under the same message cannot re-arm the budget.
   A queued human message is a new anchor and resets the budget the ordinary way.
 - **A stale list stops on the cap when one is set**, never earlier: any tool turn clears the stall.
-  That is why the cap reason appends `, list unchanged for N settles`.
+  That is why the cap reason appends `, no todo change for N replies`.
 - **Errors do not close the budget.** A turn that ends `error` or `aborted` stops the loop for that turn
   and spends no round; the counters are left as they are, so the next settle under the same message can
   continue — which is what a provider retry hits.
@@ -106,11 +106,11 @@ invisibly either.
 
 | `last:` | Meaning |
 |---|---|
-| `continuing: round 1, 2 open` | working as intended (`round 1/12` when `maxRounds` is set) |
+| `continuing: 2 tasks still open, continue 1` | working as intended (`continue 1/12` when `maxRounds` is set) |
 | `stopped: list is clear` | every remaining task is `completed`; a list whose tasks are all `deleted` reports `no list` instead |
 | `stopped: no list` | no recognised todo state on the branch — see the five causes below |
 | `waiting for you: waiting on Dana's review` | the agent called `todo_loop_block`; your next message resumes |
-| `stopped: round cap 12 reached, 2 open` | the budget is spent; `, list unchanged for N settles` means it worked without updating the list, `, the agent stalled and may need a person` means the last round was one stop that did not move the list |
+| `stopped: 12 continuations used, 2 tasks still open` | the budget is spent; `, no todo change for N replies` means it worked without updating the list, `, the agent may need you` means it stopped on a bare stall |
 | `stopped: turn outcome was error` / `aborted` | the provider failed, or you aborted the turn |
 | `paused by user` | `/todoloop pause`; `/todoloop resume` or restart |
 | `resumed by user` | `/todoloop resume`, or the human's next message clearing a pending block; the next settle may continue |
@@ -171,7 +171,7 @@ typo cannot defeat it (`maxRounds` ≤ 1000), and a value below 1 stays unlimite
   one re-sends, so a runaway grows faster than that product suggests. With the default there is no
   continuation cap, so a model
   that keeps stopping without moving the list keeps costing turns until the list clears or you stop
-  it; set `maxRounds` if you want a hard bound. Tool turns are pi's own and unbounded either way, so a
+  it; set `maxRounds` if you want a limit. Tool turns are pi's own and unbounded either way, so a
   long tool-heavy stretch can be many turns for one round.
 - The extension adds one short marker per continuation (~40 tokens), plus one constant tool declaration
   and the prompt entries pi derives from it — `<tools>` line, `<rules>` guideline, description and

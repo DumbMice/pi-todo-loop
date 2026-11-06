@@ -152,14 +152,15 @@ async function playAll(scenario: Scenario): Promise<Outcome> {
 
 	await h.commands.todoloop.handler("", h.ctx);
 	const status = h.notices.at(-1) as string;
-	const counters = status.match(/rounds (\d+)(?:\/\d+)?(?: \(no cap\))? · stalled (\d+)/);
+	const continues = status.match(/asked to continue: (\d+)/);
+	const changed = status.match(/replies in a row with no todo change: (\d+)/);
 	const reason = status.match(/last: (.*)/)?.[1] ?? status;
 	return {
 		continuations,
 		markers,
 		hints,
-		rounds: Number(counters?.[1] ?? -1),
-		stalled: Number(counters?.[2] ?? -1),
+		rounds: Number(continues?.[1] ?? -1),
+		stalled: Number(changed?.[1] ?? -1),
 		reason,
 		mode: status.split("\n")[0],
 	};
@@ -175,7 +176,7 @@ const SCENARIOS: Scenario[] = [
 		name: "prose-only model: a configured cap stops a stream of no-progress settles",
 		config: { maxRounds: 2 },
 		steps: [{ do: "settle" }, { do: "settle" }, { do: "settle" }],
-		expect: { continuations: 2, markers: 2, rounds: 2, stalled: 2, reason: /round cap 2/, mode: /stopped/ },
+		expect: { continuations: 2, markers: 2, rounds: 2, stalled: 2, reason: /2 continuations used/, mode: /stopped/ },
 	},
 	{
 		name: "stale list with tool work: the stall is cleared, the cap stops it",
@@ -191,7 +192,7 @@ const SCENARIOS: Scenario[] = [
 			{ do: "tool" },
 			{ do: "settle" },
 		],
-		expect: { continuations: 3, markers: 3, rounds: 3, stalled: 1, reason: /round cap 3/, mode: /stopped/ },
+		expect: { continuations: 3, markers: 3, rounds: 3, stalled: 1, reason: /3 continuations used/, mode: /stopped/ },
 	},
 	{
 		name: "a tool turn spends no round and writes no marker",
@@ -203,7 +204,7 @@ const SCENARIOS: Scenario[] = [
 			{ do: "settle" },
 			{ do: "settle" },
 		],
-		expect: { continuations: 2, markers: 2, rounds: 2, stalled: 1, reason: /continuing: round 2\/2/, mode: /active/ },
+		expect: { continuations: 2, markers: 2, rounds: 2, stalled: 1, reason: /2 tasks still open, continue 2\/2/, mode: /active/ },
 	},
 	{
 		name: "cap stays shut across a repeated settle under the same message",
@@ -214,7 +215,7 @@ const SCENARIOS: Scenario[] = [
 			markers: 1,
 			rounds: 1,
 			stalled: 2,
-			reason: /round cap 1 reached, 2 open, list unchanged for \d+ settles/,
+			reason: /1 continuation used, 2 tasks still open, no todo change for \d+ replies/,
 			mode: /stopped/,
 		},
 	},
@@ -222,22 +223,22 @@ const SCENARIOS: Scenario[] = [
 		name: "a new human message starts a new budget after a cap stop",
 		config: { maxRounds: 1 },
 		steps: [{ do: "settle" }, { do: "settle" }, { do: "human" }, { do: "settle" }],
-		expect: { continuations: 2, markers: 2, rounds: 1, stalled: 0, reason: /continuing: round 1\/1/, mode: /active/ },
+		expect: { continuations: 2, markers: 2, rounds: 1, stalled: 0, reason: /2 tasks still open, continue 1\/1/, mode: /active/ },
 	},
 	{
 		name: "pause freezes the counters and resume lets the next settle continue",
 		steps: [{ do: "settle" }, { do: "pause" }, { do: "settle" }, { do: "resume" }, { do: "settle" }],
-		expect: { continuations: 2, markers: 2, rounds: 2, stalled: 1, reason: /continuing: round 2/, mode: /active/ },
+		expect: { continuations: 2, markers: 2, rounds: 2, stalled: 1, reason: /2 tasks still open, continue 2/, mode: /active/ },
 	},
 	{
 		name: "reset clears the counters and restarts the budget",
 		steps: [{ do: "settle" }, { do: "settle" }, { do: "settle" }, { do: "reset" }, { do: "settle" }],
-		expect: { continuations: 4, markers: 4, rounds: 1, stalled: 0, reason: /continuing: round 1/, mode: /active/ },
+		expect: { continuations: 4, markers: 4, rounds: 1, stalled: 0, reason: /2 tasks still open, continue 1/, mode: /active/ },
 	},
 	{
 		name: "an errored settle stops without spending a round, and the next settle can continue",
 		steps: [{ do: "settle" }, { do: "error" }, { do: "edit", tasks: ONE_DONE }],
-		expect: { continuations: 2, markers: 2, rounds: 2, stalled: 0, reason: /continuing: round 2/, mode: /active/ },
+		expect: { continuations: 2, markers: 2, rounds: 2, stalled: 0, reason: /1 task still open, continue 2/, mode: /active/ },
 	},
 	{
 		name: "an aborted settle stops the loop and keeps the counters",
@@ -247,7 +248,7 @@ const SCENARIOS: Scenario[] = [
 	{
 		name: "the kill switch stops continuations and keeps the counters",
 		steps: [{ do: "settle" }, { do: "killSwitch", on: true }, { do: "settle" }, { do: "killSwitch", on: false }],
-		expect: { continuations: 1, markers: 1, rounds: 1, stalled: 0, reason: /continuing: round 1/, mode: /active/ },
+		expect: { continuations: 1, markers: 1, rounds: 1, stalled: 0, reason: /2 tasks still open, continue 1/, mode: /active/ },
 	},
 	{
 		name: "the block clause asks on the second consecutive stop, and once per run",
@@ -257,7 +258,7 @@ const SCENARIOS: Scenario[] = [
 			markers: 4,
 			rounds: 4,
 			stalled: 3,
-			reason: /continuing: round 4/,
+			reason: /2 tasks still open, continue 4/,
 			mode: /active/,
 			hintMarkers: 1,
 		},
@@ -270,7 +271,7 @@ const SCENARIOS: Scenario[] = [
 			markers: 3,
 			rounds: 3,
 			stalled: 2,
-			reason: /continuing: round 3/,
+			reason: /2 tasks still open, continue 3/,
 			mode: /active/,
 			hintMarkers: 1,
 		},
@@ -283,7 +284,7 @@ const SCENARIOS: Scenario[] = [
 			markers: 2,
 			rounds: 1,
 			stalled: 0,
-			reason: /continuing: round 1/,
+			reason: /2 tasks still open, continue 1/,
 			mode: /active/,
 		},
 	},
@@ -295,7 +296,7 @@ const SCENARIOS: Scenario[] = [
 			markers: 1,
 			rounds: 1,
 			stalled: 0,
-			reason: /continuing: round 1/,
+			reason: /2 tasks still open, continue 1/,
 			mode: /active/,
 		},
 	},
@@ -323,8 +324,8 @@ for (const scenario of SCENARIOS) {
 	test(`state machine: ${scenario.name}`, async () => {
 		const outcome = await playAll(scenario);
 		assert.equal(outcome.continuations, scenario.expect.continuations, "continuations proposed");
-		assert.equal(outcome.rounds, scenario.expect.rounds, "rounds left");
-		assert.equal(outcome.stalled, scenario.expect.stalled, "stalls left");
+		assert.equal(outcome.rounds, scenario.expect.rounds, "continuations left");
+		assert.equal(outcome.stalled, scenario.expect.stalled, "replies without a todo change");
 		assert.equal(outcome.markers, scenario.expect.markers, "markers written");
 		if (scenario.expect.hintMarkers !== undefined) {
 			assert.equal(outcome.hints, scenario.expect.hintMarkers, "markers that named the block tool");

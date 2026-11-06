@@ -337,10 +337,10 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 		if (next.staleSettles > 0 && next.staleSettles % 10 === 0) {
 			const brake =
 				config.maxRounds === null
-					? "/todoloop pause stops it, or set maxRounds for a hard bound"
-					: `${config.maxRounds} is the cap for this message`;
+					? "/todoloop pause stops it, or set maxRounds in ~/.pi/agent/todo-loop.json to limit how often it continues"
+					: `it stops after ${config.maxRounds} continuations for one of your messages`;
 			ctx.ui?.notify?.(
-				`todo-loop: ${next.staleSettles} settles without the list changing, ${snapshot.open.length} open — ${brake}`,
+				`todo-loop: the agent has replied ${next.staleSettles} times without updating the todo list, ${snapshot.open.length} still open — it will keep going. ${brake}`,
 				"warning",
 			);
 		}
@@ -402,12 +402,13 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 			ctx.ui?.notify?.(
 				[
 					`todo-loop ${mode}`,
-					`rounds ${state.rounds}${config.maxRounds === null ? " (no cap)" : `/${config.maxRounds}`} · stalled ${state.stalled}`,
+					`asked to continue: ${state.rounds}${config.maxRounds === null ? " (no limit)" : ` of ${config.maxRounds}`}`,
+					`replies in a row with no todo change: ${state.stalled}`,
 					// Only while it still belongs to this message: the human's next one
 					// resumes the loop even though the reason is still in memory.
 					...(waitingNow ? [`waiting: ${(state.waiting as { reason: string }).reason}`] : []),
-					`open ${snapshot.open.length}/${snapshot.tasks.length} tracked`,
-					`anchor ${snapshot.anchor || "(none)"}`,
+					`tasks open: ${snapshot.open.length} of ${snapshot.tasks.length}`,
+					`budget for message: ${snapshot.anchor || "(none yet)"}`,
 					`last: ${waitingNow ? `waiting for you: ${(state.waiting as { reason: string }).reason}` : state.reason}`,
 					`config ${configPath}`,
 				].join("\n"),

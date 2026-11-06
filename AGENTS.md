@@ -296,7 +296,7 @@ projects, or tightening `canContinue`; the second is how pi renders a custom too
 prompt, since the harness stub never builds one — a tool without a `promptSnippet` was silently dropped
 from `<tools>` in pi 1.5.0. Drafts are committed before the continuation is validated, so that change
 would persist a marker, drop the continuation, and leave `/todoloop` reporting `continuing: round n/12`
-until it reports `round cap` with zero continuations (with the default there is no cap, so the symptom is a rising `continuing: round n` that never stops) — while every test here stays green, because the
+until it reports a cap stop (`stopped: N continuations used, …`) with zero continuations (with the default there is no cap, so the symptom is a rising `continuing: round n` that never stops) — while every test here stays green, because the
 harness drives a stub `pi`.
 
 Before every version bump, on the *new* pi, run the documented live check once:

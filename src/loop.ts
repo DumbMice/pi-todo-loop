@@ -86,6 +86,8 @@ function stop(state: LoopState, reason: string): Decision {
  * Order matters: a new human message resets the budget before anything else, so
  * a long conversation cannot inherit the previous turn's spent rounds.
  */
+const plural = (count: number, word: string): string => `${count} ${word}${count === 1 ? "" : "s"}`;
+
 export function decide(input: DecisionInput): Decision {
 	const { state, config } = input;
 
@@ -128,12 +130,15 @@ export function decide(input: DecisionInput): Decision {
 
 	if (config.maxRounds !== null && current.rounds >= config.maxRounds) {
 		const stale =
-			current.staleSettles >= 2 ? `, list unchanged for ${current.staleSettles} settles` : "";
+			current.staleSettles >= 2 ? `, no todo change for ${current.staleSettles} replies` : "";
 		// A hint that comes due on the cap round has no continuation left to ride in.
 		// Do not drop it silently: the human reads the reason, and the agent may be
 		// blocked rather than done.
-		const stalled = hint ? ", the agent stalled and may need a person" : "";
-		return stop(current, `stopped: round cap ${config.maxRounds} reached, ${input.openCount} open${stale}${stalled}`);
+		const stalled = hint ? ", the agent may need you" : "";
+		return stop(
+			current,
+			`stopped: ${plural(config.maxRounds, "continuation")} used, ${plural(input.openCount, "task")} still open${stale}${stalled}`,
+		);
 	}
 
 	current.rounds += 1;
@@ -143,7 +148,7 @@ export function decide(input: DecisionInput): Decision {
 		continue: true,
 		next: current,
 		hint,
-		reason: `continuing: round ${current.rounds}${of}, ${input.openCount} open`,
+		reason: `continuing: ${plural(input.openCount, "task")} still open, continue ${current.rounds}${of}`,
 	};
 }
 

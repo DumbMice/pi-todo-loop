@@ -20,7 +20,7 @@ test("continues while work is open and the turn did work", () => {
 	const decision = decide(input());
 	assert.equal(decision.continue, true);
 	assert.equal(decision.next.rounds, 1);
-	assert.match(decision.reason, /round 1, 1 open/, "no cap by default, so the reason has no denominator");
+	assert.match(decision.reason, /1 task still open, continue 1/, "no cap by default, so the reason has no denominator");
 });
 
 test("stops when the list is clear", () => {
@@ -80,7 +80,7 @@ test("no round cap by default", () => {
 	const state = { ...initialState(), rounds: 500, anchor: "user-1", lastSignature: "1:pending" };
 	const decision = decide(input({ state, signature: "1:completed,2:pending" }));
 	assert.equal(decision.continue, true);
-	assert.match(decision.reason, /round 501/);
+	assert.match(decision.reason, /continue 501/);
 });
 
 test("a configured round cap stops the loop", () => {
@@ -88,7 +88,7 @@ test("a configured round cap stops the loop", () => {
 	const state = { ...initialState(), rounds: 3, anchor: "user-1", lastSignature: "1:pending" };
 	const decision = decide(input({ state, config }));
 	assert.equal(decision.continue, false);
-	assert.match(decision.reason, /round cap 3/);
+	assert.match(decision.reason, /3 continuations used/);
 });
 
 test("a new human message resets the budget", () => {
@@ -120,7 +120,7 @@ test("config caps are honoured", () => {
 		input({ config: strict, state: first.next, signature: "1:in_progress" }),
 	);
 	assert.equal(second.continue, false);
-	assert.match(second.reason, /round cap 1/);
+	assert.match(second.reason, /1 continuation used/);
 });
 
 test("a tool turn ends the run, so the next pair is asked again", () => {
@@ -147,7 +147,7 @@ test("a stale list stops on the cap with a reason that says so", () => {
 	}
 	const decision = decide(input({ toolResultCount: 0, state, config }));
 	assert.equal(decision.continue, false);
-	assert.match(decision.reason, /round cap 2 reached/);
-	assert.match(decision.reason, /list unchanged for \d+ settles/, "a stale burn must not read like healthy work");
-	assert.doesNotMatch(decision.reason, /may need a person/, "the cap landed on the second stall, not the first");
+	assert.match(decision.reason, /2 continuations used/);
+	assert.match(decision.reason, /no todo change for \d+ replies/, "a stale burn must not read like healthy work");
+	assert.doesNotMatch(decision.reason, /may need you/, "the cap landed on the second stall, not the first");
 });
