@@ -104,16 +104,16 @@ adding a `CHANGELOG.md` line — all in the same commit.
   round, a marker and a stall are therefore always about a turn that would have ended the run.
 - **A tool turn clears the stall and spends no round** — except a tool turn that ends `error`/`aborted`,
   which records the stop and leaves the counter alone. Tool turns already cause pi's next request, so
-  they must not consume a round; but they are work, so they reset `stalled` and `settleRun`. The hint is
-  re-armed by that reset: the stop after the tool turn is not asked, the one after it is.
-- **Nothing stops the loop for being quiet.** There is no strike limit: `stalled` decides only when the
-  nudge names `todo_loop_block` on the second consecutive stop with no work between them and no list
-  change, once per run of settles — the one shape the question answers. A blocked agent and a lazy
+  they must not consume a round; but they are work, so they reset `settleRun`. The stop right after the
+  tool turn is therefore not asked, and the one after it is.
+- **Nothing stops the loop for being quiet.** There is no strike limit: `settleRun === 2` decides when
+  the nudge names `todo_loop_block` — the second consecutive stop with no work between them and no list
+  change, once per run of settles, the one shape the question answers. A blocked agent and a lazy
   one are indistinguishable from here, so the agent is asked rather than judged; the only stops are a
   clear list, a configured round cap, an error, the agent's `todo_loop_block`, and your own pause or
   kill switch. There is no cap by default, so a stall that never resolves warns every tenth settle
   instead of ending the run.
-- **A stop keeps the counters; only a new human message resets them.** Clearing `rounds` / `stalled` on
+- **A stop keeps the counters; only a new human message resets them.** Clearing `rounds` / `staleSettles` on
   stop re-arms a full budget on the next `turn_end` under the same anchor (another extension's
   continuation, a provider retry). The anchor comparison is the only *automatic* reset;
   `/todoloop reset` and process start clear the counters explicitly. A queued human message is a
@@ -183,6 +183,8 @@ introduces an edge.
 | the block tool declares a prompt snippet and a self-naming guideline, so pi lists it in `<tools>`/`<rules>` | `the block tool declares a prompt snippet and a self-naming guideline` |
 | a paused loop refuses the block tool and stays silent | `a paused loop refuses todo_loop_block and stays silent` |
 | an uncapped runaway warns every tenth no-progress settle | `an uncapped runaway warns every tenth settle that changes nothing` |
+| the warning counts replies since the list changed, not replies in a row | `the warning counts replies since the list changed, not replies in a row` |
+| emptying the list by deleting tasks warns; by completing them does not | `a list emptied by deleting its tasks is announced`, `a list emptied by ticking finished tasks is silent`, `an older tombstone does not make a completion look like a deletion` |
 | a stall clause that lands on the cap round is reported, not dropped | `state machine: cap stays shut across a repeated settle under the same message`, `a stale list stops on the cap with a reason that says so` |
 | the next human message clears the block and the stale `last:` | `the human's next message clears the block` |
 | a continuation appends one hidden `custom_message` with a constant body and preserves prior proposals | `turn_end requests one turn with a hidden marker when work is open` |
@@ -218,7 +220,7 @@ Ranked by how easily a small change breaks them.
 1. **Two different tails.** A continuation whose *persisted projection* ends on an assistant message is
    rejected by pi (`canContinue`); the *request* has no such constraint but must keep role alternation.
    Conflating the two produced the round-2 marker leak. `test/index.test.ts` pins both shapes.
-2. **Counter lifecycle.** `rounds`, `stalled` and `anchor` are mutated in one place and reset in three
+2. **Counter lifecycle.** `rounds`, `staleSettles`, `settleRun` and `anchor` are mutated in one place and reset in three
    (anchor change, `/todoloop reset`, process start). A missing reset either loops forever or refuses to
    continue after one bad turn; a reset in the wrong place (inside `stop()`) silently re-arms the cap.
 3. **The anchor.** It must be human-authored and never empty. `#<index>` is the fallback when an entry

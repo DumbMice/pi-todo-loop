@@ -8,15 +8,17 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
-- The "list was cleared by todo alone" warning now fires only when the clearing turn **deleted**
-  tasks, and names the count: finishing work and closing every task in one turn is the honest ending
-  and no longer warns. A result without task details keeps the old, vaguer wording.
+- The "list was cleared by todo alone" warning now counts *calls* rather than snapshot rows: it fires
+  when the turn that emptied the list deleted tasks, and names how many. Finishing work and closing
+  every task in one turn is the honest ending and no longer warns, and a tombstone from an earlier turn
+  is not news. A result with no `action` at all keeps the old, vaguer wording.
 - `maxRounds` defaults to `null`: no continuation cap. The loop now ends when the list clears, the
   agent calls `todo_loop_block`, an error or abort occurs, or you pause it. Set a number to bound what
   one message of yours can cost; the value is still clamped to ≤ 1000, and a value below 1 stays
   unlimited rather than falling back to a default.
 - The user-facing text is plain English now: `/todoloop` says `asked to continue: 3 (no limit)`,
-  `replies in a row with no todo change: 0`, `tasks open: 2 of 5`; reasons read
+  `replies since the todo list last changed: 0`, `tasks open: 2 of 5`,
+  `counting from: your message … — a new message restarts the count`; reasons read
   `continuing: 2 tasks still open, continue 3`, and a cap reads
   `stopped: 12 continuations used, 3 tasks still open`. The words "settles", "stalled", "round cap"
   and "hard bound" are gone from what a user sees.
@@ -24,10 +26,11 @@ All notable changes to this project are documented here. The format follows
   stopped again without running a tool and without the list changing (`settleRun === 2`). A stop that
   follows real work gets the plain nudge; the stop after it is asked, so a tool-heavy run with a frozen
   list is still asked. One request per stall, never repeated. `hintSent` is gone with it.
-- That warning is keyed on `staleSettles`, which tool turns do not clear, so it also catches the model
-  this package exists for: tools running, list frozen.
 - A runaway is no longer silent: every tenth settle that leaves the list unchanged, while the loop
   keeps going, raises a warning naming the count and the two brakes (`/todoloop pause`, `maxRounds`).
+  It is keyed on `staleSettles`, which tool turns do not clear, so it also catches the model this
+  package exists for: tools running, list frozen. With a configured cap it says how many more
+  continuations remain.
 
 ### Upgrade notes
 
@@ -174,4 +177,6 @@ Initial release.
 
 [0.1.0]: https://github.com/DumbMice/pi-todo-loop/releases/tag/v0.1.0
 [0.1.1]: https://github.com/DumbMice/pi-todo-loop/releases/tag/v0.1.1
+[0.2.0]: https://github.com/DumbMice/pi-todo-loop/releases/tag/v0.2.0
+[0.2.1]: https://github.com/DumbMice/pi-todo-loop/releases/tag/v0.2.1
 [Unreleased]: https://github.com/DumbMice/pi-todo-loop/compare/v0.2.1...HEAD

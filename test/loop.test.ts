@@ -57,12 +57,12 @@ test("the hint asks exactly one stop after the last one", () => {
 
 	const third = decide(input({ toolResultCount: 0, state: second.next }));
 	assert.equal(third.hint, false, "one request per stall, not a series");
-	assert.equal(third.next.stalled, 3);
+	assert.equal(third.next.staleSettles, 3);
 });
 test("the first sighting of a list counts as progress, not a stall", () => {
 	// Fresh state has an empty signature, so it must not look like a no-op turn.
 	const decision = decide(input({ toolResultCount: 0 }));
-	assert.equal(decision.next.stalled, 0);
+	assert.equal(decision.next.staleSettles, 0);
 	assert.equal(decision.hint, false, "no hint on the first nudge of a chain");
 	assert.equal(decision.continue, true);
 });
@@ -73,7 +73,7 @@ test("a list change is progress, so it is not asked about", () => {
 		input({ toolResultCount: 0, signature: "1:completed,2:pending", state: first.next }),
 	);
 	assert.equal(second.continue, true);
-	assert.equal(second.next.stalled, 0);
+	assert.equal(second.next.staleSettles, 0);
 	assert.equal(second.hint, false, "the list moved, so nothing is stuck");
 });
 test("no round cap by default", () => {
@@ -103,10 +103,10 @@ test("a cap that lands on the bare stall names it in the reason", () => {
 });
 
 test("a new human message clears every counter, including the warning's", () => {
-	const spent = { ...initialState(), anchor: "user-1", rounds: 5, stalled: 4, staleSettles: 9, settleRun: 5 };
+	const spent = { ...initialState(), anchor: "user-1", rounds: 5, staleSettles: 9, settleRun: 5 };
 	const decision = decide(input({ state: spent, anchor: "user-2" }));
 	assert.equal(decision.next.rounds, 1, "a fresh budget, with this continuation counted");
-	assert.equal(decision.next.stalled, 0);
+	assert.equal(decision.next.staleSettles, 0);
 	assert.equal(decision.next.staleSettles, 0, "otherwise a new message would warn almost immediately");
 	// This settle is the first turn of the new run, so it counts as 1 — what matters is that
 	// the previous message's value (5) does not carry over and hide every later hint.
@@ -114,11 +114,11 @@ test("a new human message clears every counter, including the warning's", () => 
 });
 
 test("a new human message resets the budget", () => {
-	const spent = { ...initialState(), rounds: 7, stalled: 1, lastSignature: "1:pending", anchor: "user-1" };
+	const spent = { ...initialState(), rounds: 7, staleSettles: 1, lastSignature: "1:pending", anchor: "user-1" };
 	const decision = decide(input({ state: spent, anchor: "user-2" }));
 	assert.equal(decision.continue, true);
 	assert.equal(decision.next.rounds, 1, "rounds must restart at 1");
-	assert.equal(decision.next.stalled, 0);
+	assert.equal(decision.next.staleSettles, 0);
 	assert.equal(decision.next.anchor, "user-2");
 });
 test("a stop keeps the counters, so a cap stays shut for the same anchor", () => {
@@ -128,11 +128,11 @@ test("a stop keeps the counters, so a cap stays shut for the same anchor", () =>
 	assert.equal(decision.next.anchor, "user-1");
 });
 test("a new human message after a stop starts a fresh budget", () => {
-	const spent = { ...initialState(), rounds: 5, stalled: 2, anchor: "user-1" };
+	const spent = { ...initialState(), rounds: 5, staleSettles: 2, anchor: "user-1" };
 	const decision = decide(input({ state: spent, anchor: "user-2" }));
 	assert.equal(decision.continue, true);
 	assert.equal(decision.next.rounds, 1);
-	assert.equal(decision.next.stalled, 0);
+	assert.equal(decision.next.staleSettles, 0);
 });
 test("config caps are honoured", () => {
 	const strict = { ...DEFAULTS, maxRounds: 1 };

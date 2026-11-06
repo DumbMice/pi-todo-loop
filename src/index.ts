@@ -27,7 +27,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "./config.ts";
-import { decide, initialState, type LoopState } from "./loop.ts";
+import { decide, initialState, plural, type LoopState } from "./loop.ts";
 import { readSnapshot } from "./state.ts";
 
 /**
@@ -251,30 +251,27 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 		// hint: an agent that keeps working is not stuck, and a later stall is a new
 		// question rather than a repeat of the old one.
 		// A list that empties in a turn whose only tool calls were `todo` is the loop's success
-		// state and its failure state at once. Never police it — but do not launder the trust:
-		// say what happened, and only when something was actually thrown away. Ticking boxes
-		// after real work in an earlier turn is normal; deleting the tasks is not.
+		// state and its failure state at once. Never police it — but do not launder the trust.
+		// Count *calls*, not snapshot rows: rpiv-todo keeps deleted tasks as tombstones in every
+		// later snapshot, so counting rows would fire on a completion two turns after a deletion
+		// and would count the same tombstone once per call.
 		if (snapshot.open.length === 0 && state.lastOpenCount > 0 && toolResultCount > 0) {
 			const names = toolResults.map((result) => String((result as Record<string, unknown>)?.toolName ?? ""));
 			if (names.every((name) => name === "todo")) {
-				const reported = toolResults.flatMap((result) => {
-					const details = (result as Record<string, unknown>)?.details as Record<string, unknown> | undefined;
-					return Array.isArray(details?.tasks) ? (details.tasks as Record<string, unknown>[]) : [];
-				});
-				const deleted = reported.filter((entry) => String(entry?.status ?? "") === "deleted").length;
-				// No details at all means we cannot tell: say the vague thing rather than nothing.
+				const actions = toolResults.map((result) =>
+					String(((result as Record<string, unknown>)?.details as Record<string, unknown> | undefined)?.action ?? ""),
+				);
+				const known = actions.some((action) => action !== "");
+				const deleted = actions.filter((action) => action === "delete").length;
 				const line =
 					deleted > 0
-						? `${deleted} ${deleted === 1 ? "task was" : "tasks were"} deleted in that turn, and that is what emptied the list`
-						: reported.length > 0
-							? ""
-							: "the list was emptied by a turn that only touched todos";
-				if (line !== "") {
-					ctx.ui?.notify?.(
-						`todo-loop: ${line} — nothing was proved by it. Check the work before trusting the result.`,
-						"warning",
-					);
-				}
+						? `${plural(deleted, "task")} ${deleted === 1 ? "was" : "were"} deleted rather than completed in the turn that emptied the list. A deleted task is not finished work, so check the work before trusting the result.`
+						: actions.includes("clear")
+							? "the todo list was cleared in the turn that emptied it, so nothing there was completed. Check the work before trusting the result."
+							: known
+								? ""
+								: "the todo list emptied in a turn that only ran the todo tool, and its result carries no task list, so there is no way to tell whether tasks were finished or deleted. Check the work before trusting the result.";
+				if (line !== "") ctx.ui?.notify?.(`todo-loop: ${line}`, "warning");
 			}
 		}
 		state.lastOpenCount = snapshot.open.length;
@@ -292,7 +289,6 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 				state.reason = `stopped: turn outcome was ${String(event?.outcome)}`;
 				return undefined;
 			}
-			state.stalled = 0;
 			return undefined;
 		}
 
@@ -351,10 +347,13 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 		if (next.staleSettles > 0 && next.staleSettles % 10 === 0) {
 			const open = snapshot.open.length;
 			const tasks = `${open} ${open === 1 ? "task is" : "tasks are"}`;
+			const left = config.maxRounds === null ? 0 : config.maxRounds - next.rounds;
 			const brake =
 				config.maxRounds === null
-					? "/todoloop pause stops it, or set maxRounds in ~/.pi/agent/todo-loop.json to limit how often it continues"
-					: `Your limit is ${config.maxRounds} continuations per message and this one has used ${next.rounds}, so it stops on its next reply`;
+					? "Run /todoloop pause to stop it, or set maxRounds in ~/.pi/agent/todo-loop.json to limit how often it continues"
+					: left <= 0
+						? `Your limit is ${config.maxRounds} continuations per message and this message has used ${next.rounds}, so it stops on the next reply`
+						: `Your limit is ${config.maxRounds} continuations per message and this message has used ${next.rounds}, so it can continue ${left === 1 ? "once more" : `${left} more times`}`;
 			ctx.ui?.notify?.(
 				`todo-loop: the agent has replied ${next.staleSettles} times without updating the todo list, and ${tasks} still open. It keeps being asked to continue. ${brake}`,
 				"warning",

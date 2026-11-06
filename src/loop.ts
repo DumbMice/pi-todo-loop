@@ -10,11 +10,6 @@ export interface LoopState {
 	/** Continuations started since the last human message. */
 	rounds: number;
 	/**
-	 * Consecutive settles that neither ran a tool nor changed the task list. Not a limit:
-	 * it is reported, and the cap reason names it.
-	 */
-	stalled: number;
-	/**
 	 * Assistant turns since the last tool turn. A stop that follows exactly one other stop —
 	 * `settleRun === 2` — is the one-request-one-stop shape the hint asks about.
 	 */
@@ -86,7 +81,7 @@ function stop(state: LoopState, reason: string): Decision {
  * Order matters: a new human message resets the budget before anything else, so
  * a long conversation cannot inherit the previous turn's spent rounds.
  */
-const plural = (count: number, word: string): string => `${count} ${word}${count === 1 ? "" : "s"}`;
+export const plural = (count: number, word: string): string => `${count} ${word}${count === 1 ? "" : "s"}`;
 
 export function decide(input: DecisionInput): Decision {
 	const { state, config } = input;
@@ -97,7 +92,6 @@ export function decide(input: DecisionInput): Decision {
 			? {
 					...state,
 					rounds: 0,
-					stalled: 0,
 					settleRun: 0,
 					lastSignature: "",
 					staleSettles: 0,
@@ -114,11 +108,9 @@ export function decide(input: DecisionInput): Decision {
 
 	const progressed = input.toolResultCount > 0 || input.signature !== current.lastSignature;
 	if (progressed) {
-		current.stalled = 0;
 		current.staleSettles = 0;
 	} else {
 		current.staleSettles += 1;
-		current.stalled += 1;
 	}
 
 	// Every settle counts; a tool turn resets the run. `settleRun === 2` is exactly "it stopped,
@@ -153,5 +145,5 @@ export function decide(input: DecisionInput): Decision {
 }
 
 export function initialState(): LoopState {
-	return { rounds: 0, stalled: 0, settleRun: 0, lastSignature: "", staleSettles: 0, anchor: "" };
+	return { rounds: 0, settleRun: 0, lastSignature: "", staleSettles: 0, anchor: "" };
 }

@@ -48,15 +48,16 @@ must not be punished. Without a cap that means it keeps costing turns; every ten
 last changed raises a warning, so a frozen list — the shape this package exists for — does not run
 invisibly either.
 
-- A **settle** whose task signature is unchanged increments `stalled`; a settle that changed the list
-  resets it. The counter has no cap: it decides *when to ask*, not when to give up.
+- A **settle** whose task signature is unchanged increments `staleSettles`; a settle that changed the
+  list resets it. `settleRun` counts assistant turns since the last tool turn, and it is that counter —
+  not `staleSettles` — that decides *when to ask*.
 - **The nudge has two variants.** The plain one says continue and use the todo tool. The second adds
   *"If you cannot proceed without a person, call `todo_loop_block` with the reason."*, and is used for
   exactly one shape: the model stopped, we sent one request, and it stopped again **without running a
   tool and without the list changing** (`settleRun === 2`). `settleRun` counts assistant turns since the
   last tool turn, so work in between restarts it — that stop gets the plain nudge, and the stop after it
   is asked instead. Because the run keeps growing, one stall asks once rather than on every stop.
-- A **tool turn** clears `stalled` and resets `settleRun`, so the next stop is not asked about even
+- A **tool turn** resets `settleRun`, so the next stop is not asked about even
   when the list was not touched. A tool turn that ends `error`/`aborted` resets it too: it is still a
   request between two stops.
 - **`todo_loop_block`** is the agent's own exit. It is advertised in the prompt from the first turn —
@@ -73,19 +74,19 @@ invisibly either.
   the reason string
   (`, no todo change for N replies`) so a burn to a configured cap does not read like healthy work.
 - **Deleting the list is announced; finishing it is not.** If every task goes from open to closed in a
-  turn whose only tool results were `todo`, the tasks' own statuses decide the message: tasks marked
-  `deleted` produce a warning naming the count, because the list was emptied without anything being
-  proved. Tasks marked `completed` say nothing — finishing work and ticking the boxes in one turn is
-  the normal ending. A tool result that carries no task details falls back to the vague wording, since
-  there is nothing to inspect.
+  turn whose only tool results were `todo`, the *calls* decide the message: a `delete` in that turn
+  produces a warning naming how many tasks were thrown away, because a deleted task is not finished
+  work. `completed` calls say nothing — finishing work and ticking the boxes in one turn is the normal
+  ending. Calls are counted rather than the snapshot's rows, because rpiv-todo keeps deleted tasks as
+  tombstones in every later snapshot; a result with no `action` at all falls back to the vague wording,
+  since there is nothing to inspect.
 
 ## Counters
 
 | Counter | Meaning | Reset by |
 |---|---|---|
 | `rounds` | continuations spent for the current human message | a new human message, `/todoloop reset`, a new process |
-| `stalled` | settles in a row that left the list unchanged — reported, and named in a cap stop | the list changing, a completed tool turn, a new human message |
-| `staleSettles` | settles since the list last changed — drives the every-tenth warning to the human | the list changing, a new human message |
+| `staleSettles` | settles since the list last changed — decorates the cap reason and drives the every-tenth warning | the list changing, a new human message |
 | `settleRun` | assistant turns since the last tool turn — `2` is the stop the hint asks on | any tool turn, a new human message, `/todoloop reset` |
 
 - **One budget per human message.** A user-role message carrying a `customType` (this extension's

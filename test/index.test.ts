@@ -363,14 +363,55 @@ test("a list emptied by deleting its tasks is announced", async () => {
 	});
 	await run(h, "turn_end", {
 		outcome: "completed",
-		toolResults: [{ toolName: "todo", details: { tasks: [task(1, "deleted"), task(2, "deleted")] } }],
+		toolResults: [
+			{ toolName: "todo", details: { action: "delete", tasks: [task(1, "deleted")] } },
+			{ toolName: "todo", details: { action: "delete", tasks: [task(1, "deleted"), task(2, "deleted")] } },
+		],
 		entries: [],
 	});
-	assert.equal(h.notices.length, before + 1, "deleting the list is announced");
-	assert.match(h.notices.at(-1) as string, /2 tasks were deleted in that turn, and that is what emptied the list/);
-	assert.match(h.notices.at(-1) as string, /Check the work before trusting the result/);
+	const said = h.notices.slice(before).filter((line) => line.includes("deleted rather than completed"));
+	assert.equal(said.length, 1, "deleting the list is announced once");
+	assert.match(said[0] as string, /2 tasks were deleted/);
+	assert.match(said[0] as string, /check the work before trusting the result/);
 });
 
+test("an older tombstone does not make a completion look like a deletion", async () => {
+	// rpiv-todo keeps deleted tasks as tombstones in every later snapshot. Counting rows would
+	// fire here — the deletion happened two turns earlier; this turn finished the work.
+	const h = harness([
+		{ type: "message", id: "user-1", message: { role: "user", content: "go" } },
+		{ type: "custom", customType: "rpiv-todo-state", id: "t1", data: { tasks: [task(1, "deleted"), task(2, "in_progress")] } },
+	]);
+	await run(h, "turn_end", { outcome: "completed", toolResults: [], entries: [] });
+	const before = h.notices.length;
+	h.branch.push({
+		type: "custom",
+		customType: "rpiv-todo-state",
+		id: "t2",
+		data: { tasks: [task(1, "deleted"), task(2, "completed")] },
+	});
+	await run(h, "turn_end", {
+		outcome: "completed",
+		toolResults: [
+			{ toolName: "todo", details: { action: "update", tasks: [task(1, "deleted"), task(2, "completed")] } },
+		],
+		entries: [],
+	});
+	assert.doesNotMatch(h.notices.slice(before).join("\n"), /deleted rather than completed/, "a tombstone from an earlier turn is not news");
+});
+
+test("a todo result with no details says it could not tell", async () => {
+	const h = harness([
+		{ type: "message", id: "user-1", message: { role: "user", content: "go" } },
+		{ type: "custom", customType: "rpiv-todo-state", id: "t1", data: { tasks: [task(1, "pending")] } },
+	]);
+	await run(h, "turn_end", { outcome: "completed", toolResults: [], entries: [] });
+	const before = h.notices.length;
+	h.branch.push({ type: "custom", customType: "rpiv-todo-state", id: "t2", data: { tasks: [task(1, "completed")] } });
+	await run(h, "turn_end", { outcome: "completed", toolResults: [{ toolName: "todo" }], entries: [] });
+	const said = h.notices.slice(before).filter((line) => line.includes("no way to tell whether tasks were finished or deleted"));
+	assert.equal(said.length, 1, "says it could not tell");
+});
 test("a list emptied by ticking finished tasks is silent", async () => {
 	// Finishing the work in earlier turns and then closing every task in one turn is the
 	// honest ending. Warning there would fire on most healthy runs.
@@ -386,22 +427,9 @@ test("a list emptied by ticking finished tasks is silent", async () => {
 		toolResults: [{ toolName: "todo", details: { tasks: [task(1, "completed")] } }],
 		entries: [],
 	});
-	assert.equal(h.notices.length, before, "completed, not deleted: nothing to say");
+	assert.doesNotMatch(h.notices.slice(before).join("\n"), /deleted rather than completed|cannot tell/, "completed, not deleted: nothing to say");
 });
 
-test("a todo result with no details still says the list was emptied", async () => {
-	// Older shapes carry no task details. Stay conservative there rather than go silent.
-	const h = harness([
-		{ type: "message", id: "user-1", message: { role: "user", content: "go" } },
-		{ type: "custom", customType: "rpiv-todo-state", id: "t1", data: { tasks: [task(1, "pending")] } },
-	]);
-	await run(h, "turn_end", { outcome: "completed", toolResults: [], entries: [] });
-	const before = h.notices.length;
-	h.branch.push({ type: "custom", customType: "rpiv-todo-state", id: "t2", data: { tasks: [task(1, "completed")] } });
-	await run(h, "turn_end", { outcome: "completed", toolResults: [{ toolName: "todo" }], entries: [] });
-	assert.equal(h.notices.length, before + 1);
-	assert.match(h.notices.at(-1) as string, /emptied by a turn that only touched todos/);
-});
 test("a list cleared alongside real tool work is not announced", async () => {
 	const h = harness([
 		{ type: "message", id: "user-1", message: { role: "user", content: "go" } },
@@ -566,7 +594,7 @@ test("an uncapped runaway warns every tenth settle that changes nothing", async 
 
 	await run(h, "turn_end", settle); // staleSettles 10
 	assert.match(h.notices.at(-1) as string, /replied 10 times without updating the todo list, and 1 task is still open/);
-	assert.match(h.notices.at(-1) as string, /\/todoloop pause stops it, or set maxRounds in ~\/.pi\/agent\/todo-loop.json/);
+	assert.match(h.notices.at(-1) as string, /todoloop pause to stop it, or set maxRounds in ~\/.pi\/agent\/todo-loop.json/);
 
 	const after = h.notices.length;
 	await run(h, "turn_end", settle); // stalled 11
