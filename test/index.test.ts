@@ -227,7 +227,7 @@ test("the human's own message is left exactly as sent", async () => {
 		"a human's prompt is never rewritten",
 	);
 });
-test("tool turns clear the stall, spend no round, and suppress the hint for that stop", async () => {
+test("tool turns spend no round, clear the stall, and restart the hint's run", async () => {
 	// The case this extension exists for: the model runs tools and never updates the
 	// list. Without clearing, a later settle would look like the second half of a
 	// stall the tool turns already answered.
@@ -248,7 +248,14 @@ test("tool turns clear the stall, spend no round, and suppress the hint for that
 	assert.doesNotMatch(
 		next.entries.at(-1).content,
 		/todo_loop_block/,
-		"but the stop was preceded by work, so it is not asked whether it is blocked",
+		"it came straight after work, so nothing is asked yet",
+	);
+
+	const after = await run(h, "turn_end", settle);
+	assert.match(
+		after.entries.at(-1).content,
+		/todo_loop_block/,
+		"the stop after that is stop-nudge-stop, so the tool-heavy stall is still asked",
 	);
 });
 test("a marker after a human message is dropped, not merged", async () => {
@@ -513,16 +520,17 @@ test("the block tool declares a prompt snippet and a self-naming guideline", asy
 
 test("an uncapped runaway warns every tenth settle that changes nothing", async () => {
 	// No cap by default means nothing ends a prose-only run: the warning is the only signal
-	// a human who walked away gets. `stalled` is the key because work resets it.
+	// a human who walked away gets. `staleSettles` is the key because tool turns do not reset
+	// it, so a tool-heavy run with a frozen list is caught too.
 	const h = harness(branchWith([task(1, "pending")]));
 	const settle = { outcome: "completed", toolResults: [], entries: [] };
 
 	for (let turn = 1; turn <= 10; turn += 1) assert.equal((await run(h, "turn_end", settle))?.continue, true);
-	assert.doesNotMatch(h.notices.join("\n"), /settles without moving the list/, "nine is too early to shout");
+	assert.doesNotMatch(h.notices.join("\n"), /without the list changing/, "nine is too early to shout");
 
-	await run(h, "turn_end", settle); // stalled 10
-	assert.match(h.notices.at(-1) as string, /10 settles without moving the list, 1 open/);
-	assert.match(h.notices.at(-1) as string, /\/todoloop pause stops it; set maxRounds for a hard bound/);
+	await run(h, "turn_end", settle); // staleSettles 10
+	assert.match(h.notices.at(-1) as string, /10 settles without the list changing, 1 open/);
+	assert.match(h.notices.at(-1) as string, /\/todoloop pause stops it, or set maxRounds for a hard bound/);
 
 	const after = h.notices.length;
 	await run(h, "turn_end", settle); // stalled 11

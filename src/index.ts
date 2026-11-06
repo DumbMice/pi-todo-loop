@@ -271,13 +271,14 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 		}
 
 		if (toolResultCount > 0) {
+			// Any tool turn — even one that failed — is work between two stops, so it ends the
+			// run of settles the hint counts.
+			state.settleRun = 0;
 			if (String(event?.outcome) !== "completed") {
 				state.reason = `stopped: turn outcome was ${String(event?.outcome)}`;
 				return undefined;
 			}
 			state.stalled = 0;
-			// It worked: the next stop is not a bare stall, so the hint's question changes.
-			state.toolSinceStop = true;
 			return undefined;
 		}
 
@@ -330,11 +331,16 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 		};
 
 		Object.assign(state, next, { reason: decision.reason });
-		// With no cap by default, a runaway must still become visible. `stalled` counts settles
-		// that changed nothing, so real work resets it and a healthy run cannot spam this.
-		if (next.stalled > 0 && next.stalled % 10 === 0) {
+		// With no cap by default, a runaway must still become visible. `staleSettles` counts
+		// settles since the list last changed and tool turns do not clear it, so this also
+		// catches the model this package exists for: tools running, list frozen.
+		if (next.staleSettles > 0 && next.staleSettles % 10 === 0) {
+			const brake =
+				config.maxRounds === null
+					? "/todoloop pause stops it, or set maxRounds for a hard bound"
+					: `${config.maxRounds} is the cap for this message`;
 			ctx.ui?.notify?.(
-				`todo-loop: ${next.stalled} settles without moving the list, ${snapshot.open.length} open — /todoloop pause stops it; set maxRounds for a hard bound`,
+				`todo-loop: ${next.staleSettles} settles without the list changing, ${snapshot.open.length} open — ${brake}`,
 				"warning",
 			);
 		}

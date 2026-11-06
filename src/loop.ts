@@ -14,8 +14,11 @@ export interface LoopState {
 	 * it decides when to offer the block tool, not when to give up.
 	 */
 	stalled: number;
-	/** A tool turn happened since the last stop, so the next stop was not a bare stall. */
-	toolSinceStop: boolean;
+	/**
+	 * Assistant turns since the last tool turn. A stop that follows exactly one other stop —
+	 * `settleRun === 2` — is the one-request-one-stop shape the hint asks about.
+	 */
+	settleRun: number;
 	/** Task signature at the previous decision, to detect list changes. */
 	lastSignature: string;
 	/** Settles since the list last changed: a stale list stops on the cap. */
@@ -93,7 +96,7 @@ export function decide(input: DecisionInput): Decision {
 					...state,
 					rounds: 0,
 					stalled: 0,
-					toolSinceStop: false,
+					settleRun: 0,
 					lastSignature: "",
 					staleSettles: 0,
 					anchor: input.anchor,
@@ -111,16 +114,17 @@ export function decide(input: DecisionInput): Decision {
 	if (progressed) {
 		current.stalled = 0;
 		current.staleSettles = 0;
-		current.toolSinceStop = false;
 	} else {
 		current.staleSettles += 1;
 		current.stalled += 1;
 	}
 
-	// The hint asks "are you blocked?" and only one shape answers that: the model stopped, we
-	// sent one request, and it stopped again having touched nothing. A tool turn in between is
-	// an answer — it was working, not stuck — so the question is not asked again there.
-	const hint = current.stalled === 1 && !current.toolSinceStop;
+	// Every settle counts; a tool turn resets the run. `settleRun === 2` is exactly "it stopped,
+	// we sent one request, and it stopped again" — the shape the hint asks about. A list change
+	// is progress, so it is not asked there either, and the run keeps growing, so one stall asks
+	// once rather than on every stop.
+	current.settleRun += 1;
+	const hint = current.settleRun === 2 && !progressed;
 
 	if (config.maxRounds !== null && current.rounds >= config.maxRounds) {
 		const stale =
@@ -134,7 +138,6 @@ export function decide(input: DecisionInput): Decision {
 
 	current.rounds += 1;
 	current.lastSignature = input.signature;
-	current.toolSinceStop = false;
 	const of = config.maxRounds === null ? "" : `/${config.maxRounds}`;
 	return {
 		continue: true,
@@ -145,5 +148,5 @@ export function decide(input: DecisionInput): Decision {
 }
 
 export function initialState(): LoopState {
-	return { rounds: 0, stalled: 0, toolSinceStop: false, lastSignature: "", staleSettles: 0, anchor: "" };
+	return { rounds: 0, stalled: 0, settleRun: 0, lastSignature: "", staleSettles: 0, anchor: "" };
 }

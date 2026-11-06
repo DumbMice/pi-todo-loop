@@ -104,10 +104,11 @@ adding a `CHANGELOG.md` line — all in the same commit.
   round, a marker and a stall are therefore always about a turn that would have ended the run.
 - **A tool turn clears the stall and spends no round** — except a tool turn that ends `error`/`aborted`,
   which records the stop and leaves the counter alone. Tool turns already cause pi's next request, so
-  they must not consume a round; but they are work, so they reset `stalled` and re-arm the block hint.
+  they must not consume a round; but they are work, so they reset `stalled` and `settleRun`. The hint is
+  re-armed by that reset: the stop after the tool turn is not asked, the one after it is.
 - **Nothing stops the loop for being quiet.** There is no strike limit: `stalled` decides only when the
-  nudge names `todo_loop_block` only when the model stopped, was nudged once, and stopped again
-  having run no tool and changed nothing — work in between answers the question the hint asks. A blocked agent and a lazy
+  nudge names `todo_loop_block` on the second consecutive stop with no work between them and no list
+  change, once per run of settles — the one shape the question answers. A blocked agent and a lazy
   one are indistinguishable from here, so the agent is asked rather than judged; the only stops are a
   clear list, a configured round cap, an error, the agent's `todo_loop_block`, and your own pause or
   kill switch. There is no cap by default, so a stall that never resolves warns every tenth settle
@@ -147,9 +148,10 @@ introduces an edge.
 |---|---|
 | continues only while items are open | `continues while work is open and the turn did work`, `stops when the list is clear`, `stops when there is no list at all` |
 | error and aborted outcomes never continue | `never continues on an error or aborted turn` |
-| a no-progress settle never stops the loop; only the first carries the block clause | `only the first no-progress settle carries the block hint` |
+| the hint asks on the second consecutive stop, once per run of settles | `the hint asks exactly one stop after the last one`, `state machine: the block clause asks on the second consecutive stop, and once per run` |
+| a tool turn restarts the hint run, so a tool-heavy stall is still asked | `state machine: a tool turn restarts the clause run, so a tool-heavy stall is still asked` |
 | the first sighting of a list is progress, not a stall | `the first sighting of a list counts as progress, not a stall` |
-| a list change clears the stall and re-arms the hint | `a list change clears the stall and re-arms the hint` |
+| a list change is progress, so it is never asked about | `a list change is progress, so it is not asked about` |
 | no cap by default; a configured cap stops the loop | `no round cap by default`, `a configured round cap stops the loop`, `config caps are honoured` |
 | a new human message resets the budget | `a new human message resets the budget` |
 | a stop keeps the counters for the anchor, and a new message clears them | `a stop keeps the counters, so a cap stays shut for the same anchor`, `a new human message after a stop starts a fresh budget`, `the round cap is sticky for one human message` |
@@ -168,7 +170,7 @@ introduces an edge.
 | a malformed context payload is not rewritten | `context leaves a malformed payload alone instead of rewriting it` |
 | either kill switch disables both hooks | `the global kill switch disables both hooks`, `the project-local kill switch disables both hooks` |
 | only a settle spends a round: tool turns cost nothing | `a turn that ran tools spends no round and appends no marker` |
-| a tool turn clears the stall and suppresses the hint for that stop | `tool turns clear the stall, spend no round, and suppress the hint for that stop` |
+| a tool turn restarts the hint run, so a tool-heavy stall is still asked | `tool turns spend no round, clear the stall, and restart the hint's run` |
 | only the first nudge that did not move the list names the block tool | `only the first nudge that did not move the list names todo_loop_block` |
 | `todo_loop_block` stops the loop and reports the reason | `todo_loop_block stops the loop for this message and reports the reason` |
 | a block without a reason is refused | `a block without a reason is refused and does not stop the loop` |

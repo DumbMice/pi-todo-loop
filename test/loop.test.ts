@@ -43,18 +43,20 @@ test("never continues on an error or aborted turn", () => {
 	}
 });
 
-test("only the first no-progress settle carries the block hint", () => {
-	// The list is already known: this is turn 2+, not the turn that created it.
+test("the hint asks exactly one stop after the last one", () => {
+	// "It stopped, we sent one request, and it stopped again with the list unchanged."
 	const known = { ...initialState(), anchor: "user-1", lastSignature: "1:pending" };
 	const first = decide(input({ toolResultCount: 0, state: known }));
 	assert.equal(first.continue, true, "a stall is never a stop");
-	assert.equal(first.next.stalled, 1);
-	assert.equal(first.hint, true, "the first repeat stop is what a blocked agent looks like");
+	assert.equal(first.hint, false, "one stop is not yet a pattern");
 
 	const second = decide(input({ toolResultCount: 0, state: first.next }));
 	assert.equal(second.continue, true);
-	assert.equal(second.hint, false, "one request, not a series");
-	assert.equal(second.next.stalled, 2);
+	assert.equal(second.hint, true, "the second stop answers the question the nudge asks");
+
+	const third = decide(input({ toolResultCount: 0, state: second.next }));
+	assert.equal(third.hint, false, "one request per stall, not a series");
+	assert.equal(third.next.stalled, 3);
 });
 test("the first sighting of a list counts as progress, not a stall", () => {
 	// Fresh state has an empty signature, so it must not look like a no-op turn.
@@ -63,20 +65,15 @@ test("the first sighting of a list counts as progress, not a stall", () => {
 	assert.equal(decision.hint, false, "no hint on the first nudge of a chain");
 	assert.equal(decision.continue, true);
 });
-test("a list change clears the stall and re-arms the hint", () => {
+test("a list change is progress, so it is not asked about", () => {
 	const known = { ...initialState(), anchor: "user-1", lastSignature: "1:pending" };
 	const first = decide(input({ toolResultCount: 0, state: known }));
 	const second = decide(
 		input({ toolResultCount: 0, signature: "1:completed,2:pending", state: first.next }),
 	);
-	assert.equal(second.continue, true, "signature change should reset stalls");
+	assert.equal(second.continue, true);
 	assert.equal(second.next.stalled, 0);
-	assert.equal(second.hint, false);
-
-	const third = decide(
-		input({ toolResultCount: 0, signature: "1:completed,2:pending", state: second.next }),
-	);
-	assert.equal(third.hint, true, "the next stall is a new question");
+	assert.equal(second.hint, false, "the list moved, so nothing is stuck");
 });
 test("no round cap by default", () => {
 	// Unlimited: the loop ends when the list clears or the agent asks for a person.
@@ -126,21 +123,21 @@ test("config caps are honoured", () => {
 	assert.match(second.reason, /round cap 1/);
 });
 
-test("tool work clears the stall and re-arms the hint", () => {
-	// A tool turn is progress even when the list did not move: an agent that keeps
-	// working is not stuck, and a later stall is a new question.
-	const known = { ...initialState(), anchor: "user-1", lastSignature: "1:pending" };
-	const stalled = decide(input({ toolResultCount: 0, state: known }));
-	const worked = decide(input({ toolResultCount: 1, state: stalled.next }));
-	assert.equal(worked.next.stalled, 0);
-	assert.equal(worked.hint, false, "work is not a stall, so no clause");
+test("a tool turn ends the run, so the next pair is asked again", () => {
+	// The model this package exists for: tools running, list frozen. Work between two stops
+	// means the pair is not "stop, one request, stop" — but the pair after it still is.
+	const working = { ...initialState(), anchor: "user-1", lastSignature: "1:pending", settleRun: 0 };
+	const first = decide(input({ toolResultCount: 0, state: working }));
+	assert.equal(first.hint, false);
+	const second = decide(input({ toolResultCount: 0, state: first.next }));
+	assert.equal(second.hint, true, "stop, nudge, stop — with no work between them");
 
-	// A stop that follows a tool turn is not a bare stall: the model already answered
-	// "are you blocked?" by working, so the next stop is not asked again.
-	const afterWork = decide(input({ toolResultCount: 0, signature: "1:pending", state: { ...worked.next, toolSinceStop: true } }));
-	assert.equal(afterWork.hint, false);
-	const again = decide(input({ toolResultCount: 0, state: worked.next, signature: "1:pending" }));
-	assert.equal(again.hint, true, "a bare stop with no work in between is asked again");
+	// A tool turn resets the run (the adapter sets settleRun = 0 on every tool turn).
+	const afterTool = { ...second.next, settleRun: 0 };
+	const restart = decide(input({ toolResultCount: 0, signature: "1:pending", state: afterTool }));
+	assert.equal(restart.hint, false, "the first stop after work is not asked");
+	const asked = decide(input({ toolResultCount: 0, signature: "1:pending", state: restart.next }));
+	assert.equal(asked.hint, true, "but the stop after it is, so a tool-heavy stall is still asked");
 });
 test("a stale list stops on the cap with a reason that says so", () => {
 	const config = { ...DEFAULTS, maxRounds: 2 };

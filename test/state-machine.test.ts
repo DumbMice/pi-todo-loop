@@ -47,6 +47,8 @@ interface Expected {
 	stalled: number;
 	reason: RegExp;
 	mode: RegExp;
+	/** Markers that carried the `todo_loop_block` clause; asserted only when given. */
+	hintMarkers?: number;
 }
 
 interface Outcome {
@@ -60,6 +62,7 @@ interface Outcome {
 	reason: string;
 	/** The header `/todoloop` prints at the end. */
 	mode: string;
+	hints: number;
 }
 
 interface Scenario {
@@ -76,6 +79,8 @@ const ALL_DONE = [task(1, "completed"), task(2, "completed")];
 interface StepResult {
 	continued: boolean;
 	markers: number;
+	/** Of those markers, how many named the block tool. */
+	hints: number;
 }
 
 async function play(h: Harness, step: Step): Promise<StepResult> {
@@ -84,6 +89,13 @@ async function play(h: Harness, step: Step): Promise<StepResult> {
 		markers: Array.isArray(result?.entries)
 			? (result.entries as unknown[]).filter(
 					(entry) => (entry as Record<string, unknown>).customType === MARKER_TYPE,
+				).length
+			: 0,
+		hints: Array.isArray(result?.entries)
+			? (result.entries as unknown[]).filter(
+					(entry) =>
+						(entry as Record<string, unknown>).customType === MARKER_TYPE &&
+						String((entry as Record<string, unknown>).content ?? "").includes("todo_loop_block"),
 				).length
 			: 0,
 	});
@@ -100,29 +112,29 @@ async function play(h: Harness, step: Step): Promise<StepResult> {
 			return fromTurnEnd(await run(h, "turn_end", { outcome: "completed", toolResults: [], entries: [] }));
 		case "human":
 			setHuman(h);
-			return { continued: false, markers: 0 };
+			return { continued: false, markers: 0, hints: 0 };
 		case "error":
 			return fromTurnEnd(await run(h, "turn_end", { outcome: "error", toolResults: [], entries: [] }));
 		case "aborted":
 			return fromTurnEnd(await run(h, "turn_end", { outcome: "aborted", toolResults: [], entries: [] }));
 		case "pause":
 			await h.commands.todoloop.handler("pause", h.ctx);
-			return { continued: false, markers: 0 };
+			return { continued: false, markers: 0, hints: 0 };
 		case "resume":
 			await h.commands.todoloop.handler("resume", h.ctx);
-			return { continued: false, markers: 0 };
+			return { continued: false, markers: 0, hints: 0 };
 		case "reset":
 			await h.commands.todoloop.handler("reset", h.ctx);
-			return { continued: false, markers: 0 };
+			return { continued: false, markers: 0, hints: 0 };
 		case "killSwitch":
 			killSwitch(h, step.on);
-			return { continued: false, markers: 0 };
+			return { continued: false, markers: 0, hints: 0 };
 		case "clear":
 			setTasks(h, ALL_DONE);
-			return { continued: false, markers: 0 };
+			return { continued: false, markers: 0, hints: 0 };
 		case "block":
 			await callTool(h, "todo_loop_block", { reason: step.reason ?? "waiting on a review" });
-			return { continued: false, markers: 0 };
+			return { continued: false, markers: 0, hints: 0 };
 	}
 }
 
@@ -130,10 +142,12 @@ async function playAll(scenario: Scenario): Promise<Outcome> {
 	const h = harness(branchWith(OPEN), scenario.config);
 	let continuations = 0;
 	let markers = 0;
+	let hints = 0;
 	for (const step of scenario.steps) {
 		const result = await play(h, step);
 		if (result.continued) continuations += 1;
 		markers += result.markers;
+		hints += result.hints;
 	}
 
 	await h.commands.todoloop.handler("", h.ctx);
@@ -143,6 +157,7 @@ async function playAll(scenario: Scenario): Promise<Outcome> {
 	return {
 		continuations,
 		markers,
+		hints,
 		rounds: Number(counters?.[1] ?? -1),
 		stalled: Number(counters?.[2] ?? -1),
 		reason,
@@ -235,6 +250,32 @@ const SCENARIOS: Scenario[] = [
 		expect: { continuations: 1, markers: 1, rounds: 1, stalled: 0, reason: /continuing: round 1/, mode: /active/ },
 	},
 	{
+		name: "the block clause asks on the second consecutive stop, and once per run",
+		steps: [{ do: "settle" }, { do: "settle" }, { do: "settle" }, { do: "settle" }],
+		expect: {
+			continuations: 4,
+			markers: 4,
+			rounds: 4,
+			stalled: 3,
+			reason: /continuing: round 4/,
+			mode: /active/,
+			hintMarkers: 1,
+		},
+	},
+	{
+		name: "a tool turn restarts the clause run, so a tool-heavy stall is still asked",
+		steps: [{ do: "tool" }, { do: "settle" }, { do: "settle" }, { do: "settle" }],
+		expect: {
+			continuations: 3,
+			markers: 3,
+			rounds: 3,
+			stalled: 2,
+			reason: /continuing: round 3/,
+			mode: /active/,
+			hintMarkers: 1,
+		},
+	},
+	{
 		name: "the agent asks for a person: the loop stops until the human answers",
 		steps: [{ do: "settle" }, { do: "block" }, { do: "settle" }, { do: "human" }, { do: "settle" }],
 		expect: {
@@ -285,6 +326,9 @@ for (const scenario of SCENARIOS) {
 		assert.equal(outcome.rounds, scenario.expect.rounds, "rounds left");
 		assert.equal(outcome.stalled, scenario.expect.stalled, "stalls left");
 		assert.equal(outcome.markers, scenario.expect.markers, "markers written");
+		if (scenario.expect.hintMarkers !== undefined) {
+			assert.equal(outcome.hints, scenario.expect.hintMarkers, "markers that named the block tool");
+		}
 		assert.match(outcome.reason, scenario.expect.reason, `last reason: ${outcome.reason}`);
 		assert.match(outcome.mode, scenario.expect.mode, `status header: ${outcome.mode}`);
 	});

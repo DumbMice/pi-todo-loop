@@ -44,18 +44,21 @@ the object it already was — not re-built, not extended.
 Nothing here stops the loop for being quiet. A model that keeps answering without moving the list is
 kept alive — until the list clears, the agent asks for a person, you stop it, or a cap you configured
 is reached — because "stuck" and "waiting for a person" look identical from the outside, and one of them
-must not be punished. Without a cap that means it keeps costing turns; every tenth settle that changes
-nothing raises a warning so it does not do so invisibly.
+must not be punished. Without a cap that means it keeps costing turns; every tenth settle since the list
+last changed raises a warning, so a frozen list — the shape this package exists for — does not run
+invisibly either.
 
 - A **settle** whose task signature is unchanged increments `stalled`; a settle that changed the list
   resets it. The counter has no cap: it decides *when to ask*, not when to give up.
 - **The nudge has two variants.** The plain one says continue and use the todo tool. The second adds
   *"If you cannot proceed without a person, call `todo_loop_block` with the reason."*, and is used for
-  exactly one shape: the model stopped, we sent one request, and it stopped again **having run no tool
-  and changed nothing** (`stalled === 1` with no tool turn since the last stop). A tool turn in between
-  is an answer — it was working, not stuck — so that stop gets the plain nudge, and the clause is never
-  repeated inside one stall.
-- A **tool turn** clears `stalled`. Work is progress even when the list was not touched.
+  exactly one shape: the model stopped, we sent one request, and it stopped again **without running a
+  tool and without the list changing** (`settleRun === 2`). `settleRun` counts assistant turns since the
+  last tool turn, so work in between restarts it — that stop gets the plain nudge, and the stop after it
+  is asked instead. Because the run keeps growing, one stall asks once rather than on every stop.
+- A **tool turn** clears `stalled` and resets `settleRun`, so the next stop is not asked about even
+  when the list was not touched. A tool turn that ends `error`/`aborted` resets it too: it is still a
+  request between two stops.
 - **`todo_loop_block`** is the agent's own exit. It is advertised in the prompt from the first turn —
   pi lists it in `<tools>` and carries its guideline in `<rules>`, because the tool declares a
   `promptSnippet` — and the nudge is the timed offer, not the only way to learn it exists. It takes a
@@ -80,6 +83,7 @@ nothing raises a warning so it does not do so invisibly.
 | `rounds` | continuations spent for the current human message | a new human message, `/todoloop reset`, a new process |
 | `stalled` | settles in a row that left the list unchanged — no cap; it decides when the block hint is offered | the list changing, a completed tool turn, a new human message |
 | `staleSettles` | settles since the list last changed | the list changing, a new human message |
+| `settleRun` | assistant turns since the last tool turn — `2` is the stop the hint asks on | any tool turn, a new human message, `/todoloop reset` |
 
 - **One budget per human message.** A user-role message carrying a `customType` (this extension's
   marker, another extension's hidden message) is skipped when choosing the anchor, so it does not reset
