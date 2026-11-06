@@ -25,12 +25,14 @@ export interface LoopState {
 }
 
 export interface LoopConfig {
-	/** Max consecutive auto-continuations per human message. */
-	maxRounds: number;
+	/** Continuations allowed per human message; `null` means no limit. */
+	maxRounds: number | null;
 }
 
 export const DEFAULTS: LoopConfig = {
-	maxRounds: 12,
+	// No cap by default: the loop ends when the list clears, the agent asks for a person,
+	// or you stop it. Set a number to bound what one message of yours can cost.
+	maxRounds: null,
 };
 
 export type DecisionInput = {
@@ -115,7 +117,7 @@ export function decide(input: DecisionInput): Decision {
 	// round cap, an error, and the agent asking for a person.
 	const hint = current.stalled >= 1 && !current.hintSent;
 
-	if (current.rounds >= config.maxRounds) {
+	if (config.maxRounds !== null && current.rounds >= config.maxRounds) {
 		const stale =
 			current.staleSettles >= 2 ? `, list unchanged for ${current.staleSettles} settles` : "";
 		// A hint that comes due on the cap round has no continuation left to ride in.
@@ -128,11 +130,12 @@ export function decide(input: DecisionInput): Decision {
 	current.rounds += 1;
 	current.lastSignature = input.signature;
 	if (hint) current.hintSent = true;
+	const of = config.maxRounds === null ? "" : `/${config.maxRounds}`;
 	return {
 		continue: true,
 		next: current,
 		hint,
-		reason: `continuing: round ${current.rounds}/${config.maxRounds}, ${input.openCount} open`,
+		reason: `continuing: round ${current.rounds}${of}, ${input.openCount} open`,
 	};
 }
 

@@ -30,3 +30,12 @@ test("a value below 1 is treated as invalid, not as zero", () => {
 	assert.equal(mergeConfig({ maxRounds: 0 }).maxRounds, DEFAULTS.maxRounds);
 	assert.equal(mergeConfig({ maxRounds: 2.9 }).maxRounds, 2, "floors to an integer");
 });
+
+test("maxRounds accepts an explicit null, and a typo stays unlimited", () => {
+	// The default is "no cap", so the failure direction of a bad value is the expensive one:
+	// it must never invent a cap, and it must never become 0.
+	assert.equal(mergeConfig({ maxRounds: null }).maxRounds, null);
+	assert.equal(mergeConfig({ maxRounds: -3 }).maxRounds, null);
+	assert.equal(mergeConfig({ maxRounds: "12" }).maxRounds, null, "a quoted number is not a number");
+	assert.equal(mergeConfig({ maxRounds: 12 }).maxRounds, 12, "but a real number is honoured");
+});

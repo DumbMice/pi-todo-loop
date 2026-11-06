@@ -108,7 +108,9 @@ adding a `CHANGELOG.md` line — all in the same commit.
 - **Nothing stops the loop for being quiet.** There is no strike limit: `stalled` decides only when the
   nudge offers `todo_loop_block`, once per stall, and tool work re-arms it. A blocked agent and a lazy
   one are indistinguishable from here, so the agent is asked rather than judged; the only stops are a
-  clear list, the round cap, an error, and the human's own `todo_loop_block` call.
+  clear list, a configured round cap, an error, the agent's `todo_loop_block`, and your own pause or
+  kill switch. There is no cap by default, so a stall that never resolves warns every tenth settle
+  instead of ending the run.
 - **A stop keeps the counters; only a new human message resets them.** Clearing `rounds` / `stalled` on
   stop re-arms a full budget on the next `turn_end` under the same anchor (another extension's
   continuation, a provider retry). The anchor comparison is the only *automatic* reset;
@@ -147,7 +149,7 @@ introduces an edge.
 | a no-progress settle never stops the loop; the block hint is offered once per stall | `a no-progress settle continues, and offers the block hint once` |
 | the first sighting of a list is progress, not a stall | `the first sighting of a list counts as progress, not a stall` |
 | a list change clears the stall and re-arms the hint | `a list change clears the stall and re-arms the hint` |
-| the round cap stops the loop | `round cap stops the loop`, `config caps are honoured` |
+| no cap by default; a configured cap stops the loop | `no round cap by default`, `a configured round cap stops the loop`, `config caps are honoured` |
 | a new human message resets the budget | `a new human message resets the budget` |
 | a stop keeps the counters for the anchor, and a new message clears them | `a stop keeps the counters, so a cap stays shut for the same anchor`, `a new human message after a stop starts a fresh budget`, `the round cap is sticky for one human message` |
 | the newest custom entry wins over older ones | `reads the newest rpiv-todo custom entry` |
@@ -177,6 +179,7 @@ introduces an edge.
 | the kill switch silences the block tool too | `the kill switch also silences todo_loop_block` |
 | the block tool declares a prompt snippet and a self-naming guideline, so pi lists it in `<tools>`/`<rules>` | `the block tool declares a prompt snippet and a self-naming guideline` |
 | a paused loop refuses the block tool and stays silent | `a paused loop refuses todo_loop_block and stays silent` |
+| an uncapped runaway warns every tenth no-progress settle | `an uncapped runaway warns every tenth settle that changes nothing` |
 | a stall clause that lands on the cap round is reported, not dropped | `state machine: cap stays shut across a repeated settle under the same message`, `a stale list stops on the cap with a reason that says so` |
 | the next human message clears the block and the stale `last:` | `the human's next message clears the block` |
 | a continuation appends one hidden `custom_message` with a constant body and preserves prior proposals | `turn_end requests one turn with a hidden marker when work is open` |
@@ -290,7 +293,7 @@ projects, or tightening `canContinue`; the second is how pi renders a custom too
 prompt, since the harness stub never builds one — a tool without a `promptSnippet` was silently dropped
 from `<tools>` in pi 1.5.0. Drafts are committed before the continuation is validated, so that change
 would persist a marker, drop the continuation, and leave `/todoloop` reporting `continuing: round n/12`
-until it reports `round cap` with zero continuations — while every test here stays green, because the
+until it reports `round cap` with zero continuations (with the default there is no cap, so the symptom is a rising `continuing: round n` that never stops) — while every test here stays green, because the
 harness drives a stub `pi`.
 
 Before every version bump, on the *new* pi, run the documented live check once:

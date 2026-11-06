@@ -5,8 +5,8 @@
  *
  *   context    drop a marker that would sit next to a human message, and
  *              nothing else: the prompt is never rewritten with task state
- *   turn_end   request another turn while tasks are open, bounded by maxRounds
- *              (see loop.ts), and stop when the agent calls todo_loop_block
+ *   turn_end   request another turn while tasks are open (uncapped unless maxRounds is
+ *              set), and stop when the agent calls todo_loop_block
  *   todo_loop_block  the agent's "I need a person" signal, scoped to one message
  *   /todoloop  status | pause | resume | reset
  *
@@ -328,6 +328,14 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 		};
 
 		Object.assign(state, next, { reason: decision.reason });
+		// With no cap by default, a runaway must still become visible. `stalled` counts settles
+		// that changed nothing, so real work resets it and a healthy run cannot spam this.
+		if (next.stalled > 0 && next.stalled % 10 === 0) {
+			ctx.ui?.notify?.(
+				`todo-loop: ${next.stalled} settles without moving the list, ${snapshot.open.length} open — /todoloop pause stops it; set maxRounds for a hard bound`,
+				"warning",
+			);
+		}
 		return proposal;
 	});
 
@@ -386,7 +394,7 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 			ctx.ui?.notify?.(
 				[
 					`todo-loop ${mode}`,
-					`rounds ${state.rounds}/${config.maxRounds} · stalled ${state.stalled}`,
+					`rounds ${state.rounds}${config.maxRounds === null ? " (no cap)" : `/${config.maxRounds}`} · stalled ${state.stalled}`,
 					// Only while it still belongs to this message: the human's next one
 					// resumes the loop even though the reason is still in memory.
 					...(waitingNow ? [`waiting: ${(state.waiting as { reason: string }).reason}`] : []),

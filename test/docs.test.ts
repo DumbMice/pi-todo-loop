@@ -79,7 +79,7 @@ test("every test name the invariant map cites actually exists", () => {
 		.split("\n")
 		.filter((line) => line.startsWith("|") && !line.startsWith("| Invariant") && !isSeparator(line));
 	// Pinned exactly: a row that disappears must fail here, not merely lower the count.
-	assert.equal(rows.length, 49, `invariant map row count changed (${rows.length}); update this number when you add a row`);
+	assert.equal(rows.length, 50, `invariant map row count changed (${rows.length}); update this number when you add a row`);
 
 	const cited: string[] = [];
 	for (const row of rows) {
@@ -102,7 +102,7 @@ test("every stop reason the code can report appears in the README table", () => 
 	const lines = [read("../src/loop.ts"), read("../src/index.ts")]
 		.join("\n")
 		.split("\n")
-		.filter((line) => /(?:state\.)?reason\s*[:=]\s*[`"']|stop\([A-Za-z]+,/.test(line));
+		.filter((line) => /(?:state\.)?reason\s*[:=]\s*[`"']|stop\([A-Za-z]+,|const (?:stale|stalled) =/.test(line));
 
 	const fragments = new Set<string>();
 	for (const line of lines) {
@@ -138,8 +138,12 @@ test("clamp ceilings in the README match the ones the code enforces, per key", (
 		ceiling: match[2].replace(/_/g, ""),
 	}));
 	// Derived, not pinned: a numeric config key that is not clamped is the drift to catch.
+	// `null` is a numeric setting with "no limit" as its value, so it counts too.
 	const numericKeys = Object.keys(DEFAULTS)
-		.filter((key) => typeof (DEFAULTS as Record<string, unknown>)[key] === "number")
+		.filter((key) => {
+			const value = (DEFAULTS as Record<string, unknown>)[key];
+			return typeof value === "number" || value === null;
+		})
 		.sort();
 	assert.deepEqual(
 		clamps.map(({ key }) => key).sort(),

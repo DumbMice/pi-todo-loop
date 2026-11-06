@@ -42,8 +42,10 @@ the object it already was — not re-built, not extended.
 ## Stalls, and the block tool
 
 Nothing here stops the loop for being quiet. A model that keeps answering without moving the list is
-kept alive until the round cap, because "stuck" and "waiting for a person" look identical from the
-outside — and one of them must not be punished.
+kept alive — until the list clears, the agent asks for a person, you stop it, or a cap you configured
+is reached — because "stuck" and "waiting for a person" look identical from the outside, and one of them
+must not be punished. Without a cap that means it keeps costing turns; every tenth settle that changes
+nothing raises a warning so it does not do so invisibly.
 
 - A **settle** whose task signature is unchanged increments `stalled`; a settle that changed the list
   resets it. The counter has no cap: it decides *when to ask*, not when to give up.
@@ -64,7 +66,7 @@ outside — and one of them must not be punished.
 - **`staleSettles`** counts settles since the list last changed; a tool turn that leaves the list
   unchanged does not clear it. It
   never injects anything and never stops anything: it only decorates the reason string
-  (`, list unchanged for N settles`) so a burn through the round cap does not read like healthy work.
+  (`, list unchanged for N settles`) so a burn to a configured cap does not read like healthy work.
 - **A list cleared by `todo` calls alone is announced.** If every task goes from open to closed in a
   turn whose only tool results were `todo`, a warning says so once. The loop's success state and its
   failure state are the same observable.
@@ -81,10 +83,10 @@ outside — and one of them must not be punished.
   marker, another extension's hidden message) is skipped when choosing the anchor, so it does not reset
   the budget; `/todoloop` prints the anchor it is using.
 - **A stop keeps the budget shut.** Hitting the cap does not clear the counters, so
-  another extension's continuation or a provider retry under the same message cannot re-arm 12 rounds.
+  another extension's continuation or a provider retry under the same message cannot re-arm the budget.
   A queued human message is a new anchor and resets the budget the ordinary way.
-- **A stale list stops on the cap**, never earlier: any tool turn clears the stall. That is why the cap
-  reason appends `, list unchanged for N settles`.
+- **A stale list stops on the cap when one is set**, never earlier: any tool turn clears the stall.
+  That is why the cap reason appends `, list unchanged for N settles`.
 - **Errors do not close the budget.** A turn that ends `error` or `aborted` stops the loop for that turn
   and spends no round; the counters are left as they are, so the next settle under the same message can
   continue — which is what a provider retry hits.
@@ -98,7 +100,7 @@ outside — and one of them must not be punished.
 
 | `last:` | Meaning |
 |---|---|
-| `continuing: round 1/12, 2 open` | working as intended |
+| `continuing: round 1, 2 open` | working as intended (`round 1/12` when `maxRounds` is set) |
 | `stopped: list is clear` | every remaining task is `completed`; a list whose tasks are all `deleted` reports `no list` instead |
 | `stopped: no list` | no recognised todo state on the branch — see the five causes below |
 | `waiting for you: waiting on Dana's review` | the agent called `todo_loop_block`; your next message resumes |
@@ -151,15 +153,20 @@ task `deleted`.
 ## Configuration limits
 
 Invalid config never fails a turn: missing, unreadable or invalid values fall back to the defaults.
-That includes values below `1` — `"maxRounds": 0` means "use 12", not "never continue". Numbers are
-clamped so a typo cannot defeat the cap it configures: `maxRounds` ≤ 1000.
+`maxRounds` is `null` by default, which means no limit: the loop ends when the list clears, the agent
+blocks, or you stop it. Set a number to bound what one message of yours can cost; it is clamped so a
+typo cannot defeat it (`maxRounds` ≤ 1000), and a value below 1 stays unlimited rather than becoming
+"never continue".
 
 ## Cost
 
 - A continuation is a normal model turn: the whole conversation is sent again, so cost scales with the
-  number of continuations × session size. `maxRounds` caps continuations, not turns — tool turns are
-  pi's own and unbounded, so a long tool-heavy stretch can be many turns for one round. That is the
-  dominant term.
+  number of continuations × session size — and each continuation lengthens the conversation the next
+  one re-sends, so a runaway grows faster than that product suggests. With the default there is no
+  continuation cap, so a model
+  that keeps stopping without moving the list keeps costing turns until the list clears or you stop
+  it; set `maxRounds` if you want a hard bound. Tool turns are pi's own and unbounded either way, so a
+  long tool-heavy stretch can be many turns for one round.
 - The extension adds one short marker per continuation (~40 tokens), plus one constant tool declaration
   and the prompt entries pi derives from it — `<tools>` line, `<rules>` guideline, description and
   schema, roughly 700 characters together, in every request. None of it carries task state, and there

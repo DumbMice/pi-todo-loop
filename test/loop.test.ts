@@ -20,7 +20,7 @@ test("continues while work is open and the turn did work", () => {
 	const decision = decide(input());
 	assert.equal(decision.continue, true);
 	assert.equal(decision.next.rounds, 1);
-	assert.match(decision.reason, /round 1\/12/);
+	assert.match(decision.reason, /round 1, 1 open/, "no cap by default, so the reason has no denominator");
 });
 
 test("stops when the list is clear", () => {
@@ -78,11 +78,20 @@ test("a list change clears the stall and re-arms the hint", () => {
 	);
 	assert.equal(third.hint, true, "the next stall is a new question");
 });
-test("round cap stops the loop", () => {
-	const state = { ...initialState(), rounds: DEFAULTS.maxRounds, anchor: "user-1", lastSignature: "1:pending" };
-	const decision = decide(input({ state }));
+test("no round cap by default", () => {
+	// Unlimited: the loop ends when the list clears or the agent asks for a person.
+	const state = { ...initialState(), rounds: 500, anchor: "user-1", lastSignature: "1:pending" };
+	const decision = decide(input({ state, signature: "1:completed,2:pending" }));
+	assert.equal(decision.continue, true);
+	assert.match(decision.reason, /round 501/);
+});
+
+test("a configured round cap stops the loop", () => {
+	const config = { ...DEFAULTS, maxRounds: 3 };
+	const state = { ...initialState(), rounds: 3, anchor: "user-1", lastSignature: "1:pending" };
+	const decision = decide(input({ state, config }));
 	assert.equal(decision.continue, false);
-	assert.match(decision.reason, /round cap/);
+	assert.match(decision.reason, /round cap 3/);
 });
 
 test("a new human message resets the budget", () => {

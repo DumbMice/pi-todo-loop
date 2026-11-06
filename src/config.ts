@@ -20,6 +20,10 @@ function coerce(raw: unknown): Partial<LoopConfig> {
 			? Math.min(Math.floor(value), ceiling)
 			: undefined;
 
+	// `null` is the documented "no limit"; a number is clamped so a typo cannot defeat the
+	// budget it configures (`maxRounds: 1e9` would otherwise be honoured). A value below 1
+	// is ignored and stays unlimited, which is also the default.
+	if (record.maxRounds === null) out.maxRounds = null;
 	const maxRounds = bounded(record.maxRounds, 1_000);
 	if (maxRounds !== undefined) out.maxRounds = maxRounds;
 

@@ -52,7 +52,7 @@ It stops for one of these reasons, and `/todoloop` always says which:
 |---|---|
 | the list is clear | `stopped: list is clear` — the normal ending |
 | the model said it needs a person | `waiting for you: waiting on Dana's review` — it called `todo_loop_block`; your next message resumes |
-| the budget is spent | `stopped: round cap 12 reached, 3 open` — 12 continuations for your one message; if it ends with `the agent stalled and may need a person`, ask it what it is waiting on |
+| a configured cap is reached | `stopped: round cap 12 reached, 3 open` — only when `maxRounds` is set; if it ends with `the agent stalled and may need a person`, ask it what it is waiting on |
 | the turn failed | `stopped: turn outcome was error` — the provider failed, or you aborted it |
 
 ## When it helps
@@ -60,14 +60,17 @@ It stops for one of these reasons, and `/todoloop` always says which:
 - Long, multi-step work where the agent summarises and hands back halfway.
 - Sessions long enough to be compacted — the list survives on disk; the nudge is what gets the model to
   read it again.
-- A model that runs tools but rarely updates its list. It will still be nudged; it may keep working to
-  the round cap.
+- A model that runs tools but rarely updates its list. It will still be nudged, and with no cap by
+  default it keeps going until the list clears.
 
 ## When it does not
 
 - **No todo tool installed.** The extension is inert: nothing continues.
-- **You want an autonomous agent that invents its own goals.** This drives the list you have; it stops
-  after 12 continuations per message by default.
+- **You want an autonomous agent that invents its own goals.** This drives the list you have; nothing
+  here adds work you did not ask for.
+- **You want a hard ceiling on cost.** There is no continuation cap by default — set `maxRounds` if you
+  want one, otherwise a model that keeps stopping will keep costing turns. `/todoloop` says `(no cap)`
+  and warns every tenth stall that changes nothing.
 - **You want the continuations visible.** They are silent by design.
 - **You want the agent to keep going after you said stop.** Your instruction wins; a model that reads
   "stop" as final can say so with `todo_loop_block`, and that stops the loop immediately.
@@ -87,13 +90,13 @@ Optional, at `~/.pi/agent/todo-loop.json`:
 
 ```json
 {
-  "maxRounds": 12
+  "maxRounds": null
 }
 ```
 
 | Key | Default | What it does |
 |---|---|---|
-| `maxRounds` | `12` | continuations allowed per message to the agent |
+| `maxRounds` | `null` | continuations allowed per message; `null` means no limit, a number caps it |
 
 A missing or broken file falls back to these values; a bad config never fails a turn.
 
@@ -119,10 +122,10 @@ After a response that made no tool calls while tasks are open, `/todoloop` shoul
 
 ```
 todo-loop active
-rounds 1/12 · stalled 0
+rounds 1 (no cap) · stalled 0
 open 2/5 tracked
 anchor 4f3c1a2e
-last: continuing: round 1/12, 2 open
+last: continuing: round 1, 2 open
 config ~/.pi/agent/todo-loop.json
 ```
 
@@ -138,7 +141,7 @@ grep -c 'todo-loop:continue' ~/.pi/agent/sessions/<project>/*.jsonl
 |---|---|
 | Nothing continues | Check `/todoloop`: `DISABLED` means a kill-switch file exists, `PAUSED` means you paused it. `last: stopped: no list` with `open 0/0 tracked` means the model has not created a list in this session; if the open count is non-zero the tool is writing a shape this extension does not read |
 | The model asked for a person | It called `todo_loop_block` with a reason, so the loop is stopped until your next message. The reason appears in `/todoloop` as `waiting for you: …` |
-| It stopped at the round cap | The budget for that message is spent; send another message. `list unchanged for N settles` means the model was working without updating the list; `the agent stalled and may need a person` means it stopped without moving the list on the last round — ask what it is waiting on |
+| It stopped at the round cap | Only happens when `maxRounds` is set: the budget for that message is spent; send another message. `list unchanged for N settles` means the model was working without updating the list; `the agent stalled and may need a person` means it stopped without moving the list on the last round — ask what it is waiting on |
 | Rounds jump by two, or continuations appear twice | Two continuation extensions are installed; `pi list` shows them, remove one, then `/reload` |
 | The list is stale | The extension nudges, it does not write statuses. Nothing here fabricates progress |
 | A warning says the list was cleared by todo alone | Every task closed in a turn with no other tool work. Check the work before trusting it |

@@ -35,7 +35,7 @@ full. Items that produce no signal in the transcript are marked _(silent)_.
    what keeps the conversation alternating: `assistant → marker(user) → assistant`. Removing them
    exposes runs of consecutive assistant messages, which alternation-requiring providers reject — a
    stricter risk than the one marker-per-round growth they cost (about 200 bytes each, bounded by
-   `maxRounds` per human message, and they accumulate across messages). Their body is constant (`<todo_loop_continue/>`), so a marker left in
+   `maxRounds` per human message — and only when `maxRounds` is set, since the default is no cap, and they accumulate across messages). Their body is constant (`<todo_loop_continue/>`), so a marker left in
    history cannot claim the loop is on some other round. With the kill switch set the hook rewrites
    nothing, because a disabled extension must not touch the request.
 3. **Two different tails are in play, and only one of them is constrained.** pi's boundary checks the

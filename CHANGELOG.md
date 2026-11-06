@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- `maxRounds` defaults to `null`: no continuation cap. The loop now ends when the list clears, the
+  agent calls `todo_loop_block`, an error or abort occurs, or you pause it. Set a number to bound what
+  one message of yours can cost; the value is still clamped to ≤ 1000, and a value below 1 stays
+  unlimited rather than falling back to a default.
+- `/todoloop` says `rounds 3 (no cap)` instead of `rounds 3/12` when no cap is configured, so the
+  absence of a ceiling is visible where you look.
+- A runaway is no longer silent: every tenth settle that leaves the list unchanged, while the loop
+  keeps going, raises a warning naming the count and the two brakes (`/todoloop pause`, `maxRounds`).
+
+### Upgrade notes
+
+- A session that relied on the old default of 12 now runs unbounded. An explicit `"maxRounds": 12` in
+  the config file is honoured exactly as before, so that is the one-line way to keep the old ceiling.
+- `"maxRounds": 0` used to mean "use 12"; it now means unlimited, like any value below 1.
+
 ## [0.2.1] - 2026-11-05
 
 ### Changed
@@ -143,4 +162,4 @@ Initial release.
 
 [0.1.0]: https://github.com/DumbMice/pi-todo-loop/releases/tag/v0.1.0
 [0.1.1]: https://github.com/DumbMice/pi-todo-loop/releases/tag/v0.1.1
-[Unreleased]: https://github.com/DumbMice/pi-todo-loop/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/DumbMice/pi-todo-loop/compare/v0.2.1...HEAD

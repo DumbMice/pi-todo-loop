@@ -153,7 +153,7 @@ test("turn_end stops on an errored or aborted turn and does not spend a round", 
 	}
 	const status = await h.commands.todoloop.handler("", h.ctx);
 	assert.equal(status, undefined);
-	assert.match(h.notices.at(-1) as string, /rounds 0\/12/);
+	assert.match(h.notices.at(-1) as string, /rounds 0 \(no cap\) · stalled 0/);
 });
 
 test("turn_end stops when the list is clear, and reports why", async () => {
@@ -241,7 +241,7 @@ test("tool turns clear the stall but never spend a round", async () => {
 	for (let turn = 0; turn < 3; turn += 1) assert.equal(await run(h, "turn_end", toolTurn), undefined);
 
 	await h.commands.todoloop.handler("", h.ctx);
-	assert.match(h.notices.at(-1) as string, /rounds 2\/12 · stalled 0/, "the tool turns cleared the stall");
+	assert.match(h.notices.at(-1) as string, /rounds 2 \(no cap\) · stalled 0/, "the tool turns cleared the stall");
 
 	const next = await run(h, "turn_end", settle);
 	assert.equal(next?.continue, true, "so the next settle is a stall again");
@@ -323,7 +323,7 @@ test("an aborted turn carrying tool results reports the stop and keeps the stall
 	const aborted = await run(h, "turn_end", { outcome: "aborted", toolResults: [{ role: "toolResult" }], entries: [] });
 	assert.equal(aborted, undefined);
 	await h.commands.todoloop.handler("", h.ctx);
-	assert.match(h.notices.at(-1) as string, /rounds 2\/12 · stalled 1/);
+	assert.match(h.notices.at(-1) as string, /rounds 2 \(no cap\) · stalled 1/);
 	assert.match(h.notices.at(-1) as string, /last: stopped: turn outcome was aborted/);
 });
 test("a stop is announced, and a repeated reason is not announced twice", async () => {
@@ -505,4 +505,22 @@ test("the block tool declares a prompt snippet and a self-naming guideline", asy
 	assert.ok(guideline.includes("todo_loop_block"), "a guideline must name its tool in pi's flat <rules>");
 	assert.match(guideline, /do not use it/i, "the prohibition must be pinned, not only the recommendation");
 	assert.match(guideline, /pick the reasonable option/i, "and the alternative to blocking");
+});
+
+test("an uncapped runaway warns every tenth settle that changes nothing", async () => {
+	// No cap by default means nothing ends a prose-only run: the warning is the only signal
+	// a human who walked away gets. `stalled` is the key because work resets it.
+	const h = harness(branchWith([task(1, "pending")]));
+	const settle = { outcome: "completed", toolResults: [], entries: [] };
+
+	for (let turn = 1; turn <= 10; turn += 1) assert.equal((await run(h, "turn_end", settle))?.continue, true);
+	assert.doesNotMatch(h.notices.join("\n"), /settles without moving the list/, "nine is too early to shout");
+
+	await run(h, "turn_end", settle); // stalled 10
+	assert.match(h.notices.at(-1) as string, /10 settles without moving the list, 1 open/);
+	assert.match(h.notices.at(-1) as string, /\/todoloop pause stops it; set maxRounds for a hard bound/);
+
+	const after = h.notices.length;
+	await run(h, "turn_end", settle); // stalled 11
+	assert.equal(h.notices.length, after, "and it does not repeat every turn");
 });

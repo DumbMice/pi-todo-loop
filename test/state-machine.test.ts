@@ -138,7 +138,7 @@ async function playAll(scenario: Scenario): Promise<Outcome> {
 
 	await h.commands.todoloop.handler("", h.ctx);
 	const status = h.notices.at(-1) as string;
-	const counters = status.match(/rounds (\d+)\/\d+ · stalled (\d+)/);
+	const counters = status.match(/rounds (\d+)(?:\/\d+)?(?: \(no cap\))? · stalled (\d+)/);
 	const reason = status.match(/last: (.*)/)?.[1] ?? status;
 	return {
 		continuations,
@@ -157,9 +157,10 @@ const SCENARIOS: Scenario[] = [
 		expect: { continuations: 1, markers: 1, rounds: 1, stalled: 0, reason: /stopped: list is clear/, mode: /stopped/ },
 	},
 	{
-		name: "prose-only model: repeated settles never stop it; the cap does",
+		name: "prose-only model: a configured cap stops a stream of no-progress settles",
+		config: { maxRounds: 2 },
 		steps: [{ do: "settle" }, { do: "settle" }, { do: "settle" }],
-		expect: { continuations: 3, markers: 3, rounds: 3, stalled: 2, reason: /continuing: round 3/, mode: /active/ },
+		expect: { continuations: 2, markers: 2, rounds: 2, stalled: 2, reason: /round cap 2/, mode: /stopped/ },
 	},
 	{
 		name: "stale list with tool work: the stall is cleared, the cap stops it",
