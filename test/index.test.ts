@@ -388,7 +388,7 @@ test("a run of markers at the tail keeps one, so the nudge survives", async () =
 	assert.deepEqual(result.messages.map((message: any) => (message.customType ? "marker" : message.role)), ["assistant", "marker"]);
 });
 
-test("the nudge offers todo_loop_block once, after a repeat stop", async () => {
+test("every nudge that did not move the list names todo_loop_block", async () => {
 	const h = harness(branchWith([task(1, "pending")]));
 	const settle = { outcome: "completed", toolResults: [], entries: [] };
 
@@ -399,7 +399,7 @@ test("the nudge offers todo_loop_block once, after a repeat stop", async () => {
 	assert.match(second.entries.at(-1).content, /todo_loop_block/, "the repeat stop does");
 
 	const third = await run(h, "turn_end", settle);
-	assert.doesNotMatch(third.entries.at(-1).content, /todo_loop_block/, "and it is offered once, not on every nudge");
+	assert.match(third.entries.at(-1).content, /todo_loop_block/, "and it is repeated, because with no cap there is no later nudge");
 	assert.match(third.entries.at(-1).content, /If the human's latest instruction says to stop/, "the concession still ends the nudge");
 });
 

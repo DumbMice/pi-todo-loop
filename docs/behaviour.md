@@ -49,10 +49,11 @@ nothing raises a warning so it does not do so invisibly.
 
 - A **settle** whose task signature is unchanged increments `stalled`; a settle that changed the list
   resets it. The counter has no cap: it decides *when to ask*, not when to give up.
-- On the first settlement since progress that finds `stalled >= 1` — one stop that did not move the
-  list — the nudge is the variant that adds *"If you cannot proceed without a person, call
-  `todo_loop_block` with the reason."* It is offered **once per stall**; tool work re-arms it, so a
-  second, separate stall after real progress is a new question.
+- Every settlement that does not move the list finds `stalled >= 1`, so **every** such nudge is the
+  variant that adds *"If you cannot proceed without a person, call
+  `todo_loop_block` with the reason."* It repeats on every stalled nudge: with no cap there is no
+  later envelope that would carry it, and one line of text is cheaper than a forgotten exit. Any tool
+  turn or list change clears `stalled`, so a working agent never sees it.
 - A **tool turn** clears `stalled`. Work is progress even when the list was not touched.
 - **`todo_loop_block`** is the agent's own exit. It is advertised in the prompt from the first turn —
   pi lists it in `<tools>` and carries its guideline in `<rules>`, because the tool declares a

@@ -106,7 +106,7 @@ adding a `CHANGELOG.md` line — all in the same commit.
   which records the stop and leaves the counter alone. Tool turns already cause pi's next request, so
   they must not consume a round; but they are work, so they reset `stalled` and re-arm the block hint.
 - **Nothing stops the loop for being quiet.** There is no strike limit: `stalled` decides only when the
-  nudge offers `todo_loop_block`, once per stall, and tool work re-arms it. A blocked agent and a lazy
+  nudge names `todo_loop_block` on every settle that did not move the list. A blocked agent and a lazy
   one are indistinguishable from here, so the agent is asked rather than judged; the only stops are a
   clear list, a configured round cap, an error, the agent's `todo_loop_block`, and your own pause or
   kill switch. There is no cap by default, so a stall that never resolves warns every tenth settle
@@ -146,7 +146,7 @@ introduces an edge.
 |---|---|
 | continues only while items are open | `continues while work is open and the turn did work`, `stops when the list is clear`, `stops when there is no list at all` |
 | error and aborted outcomes never continue | `never continues on an error or aborted turn` |
-| a no-progress settle never stops the loop; the block hint is offered once per stall | `a no-progress settle continues, and offers the block hint once` |
+| a no-progress settle never stops the loop, and every one carries the block clause | `every no-progress settle carries the block hint` |
 | the first sighting of a list is progress, not a stall | `the first sighting of a list counts as progress, not a stall` |
 | a list change clears the stall and re-arms the hint | `a list change clears the stall and re-arms the hint` |
 | no cap by default; a configured cap stops the loop | `no round cap by default`, `a configured round cap stops the loop`, `config caps are honoured` |
@@ -168,7 +168,7 @@ introduces an edge.
 | either kill switch disables both hooks | `the global kill switch disables both hooks`, `the project-local kill switch disables both hooks` |
 | only a settle spends a round: tool turns cost nothing | `a turn that ran tools spends no round and appends no marker` |
 | a tool turn clears the stall and re-arms the hint | `tool turns clear the stall but never spend a round` |
-| the block hint is offered once per stall, on the repeat stop | `the nudge offers todo_loop_block once, after a repeat stop` |
+| every nudge that did not move the list names the block tool | `every nudge that did not move the list names todo_loop_block` |
 | `todo_loop_block` stops the loop and reports the reason | `todo_loop_block stops the loop for this message and reports the reason` |
 | a block without a reason is refused | `a block without a reason is refused and does not stop the loop` |
 | the human's next message clears the block | `the human's next message clears the block` |

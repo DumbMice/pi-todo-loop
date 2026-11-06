@@ -60,9 +60,9 @@ export const MARKER_BODY =
 	"Continue with the open todo tasks; use the todo tool to read and update the list. If the human's latest instruction says to stop or limits what to do, do that instead.";
 
 /**
- * The same nudge, offered once per stall: this is the first stop since real progress
- * that did not move the list, which is what a blocked agent looks like. The concession
- * stays last — the block still ends by telling the model the human outranks it.
+ * The same nudge, used for every settle that did not move the list — the shape a blocked
+ * agent has. With no cap there is no later nudge to carry the exit, so it repeats. The
+ * concession stays last: the block still ends by telling the model the human outranks it.
  */
 export const MARKER_BODY_HINT =
 	"Continue with the open todo tasks; use the todo tool to read and update the list. If you cannot proceed without a person, call todo_loop_block with the reason. If the human's latest instruction says to stop or limits what to do, do that instead.";
@@ -275,7 +275,6 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 				return undefined;
 			}
 			state.stalled = 0;
-			state.hintSent = false;
 			return undefined;
 		}
 

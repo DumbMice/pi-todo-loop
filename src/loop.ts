@@ -14,8 +14,6 @@ export interface LoopState {
 	 * it decides when to offer the block tool, not when to give up.
 	 */
 	stalled: number;
-	/** Whether the "call todo_loop_block" clause has already been offered this stall. */
-	hintSent: boolean;
 	/** Task signature at the previous decision, to detect list changes. */
 	lastSignature: string;
 	/** Settles since the list last changed: a stale list stops on the cap. */
@@ -60,9 +58,8 @@ export interface Decision {
 	reason: string;
 	/**
 	 * True when this continuation should carry the "if you cannot proceed without a
-	 * person, call todo_loop_block" clause. Offered once per stall: this is the first
-	 * stop since real progress that did not move the list — the shape a blocked agent
-	 * has.
+	 * person, call todo_loop_block" clause. Every settle that does not move the list
+	 * carries it, because with no cap there is no later nudge that will.
 	 */
 	hint: boolean;
 }
@@ -90,7 +87,7 @@ export function decide(input: DecisionInput): Decision {
 	// A new human message owns a fresh budget.
 	let current: LoopState =
 		input.anchor !== state.anchor
-			? { ...state, rounds: 0, stalled: 0, hintSent: false, lastSignature: "", staleSettles: 0, anchor: input.anchor }
+			? { ...state, rounds: 0, stalled: 0, lastSignature: "", staleSettles: 0, anchor: input.anchor }
 			: { ...state };
 
 	if (input.outcome !== "completed") {
@@ -102,20 +99,17 @@ export function decide(input: DecisionInput): Decision {
 
 	const progressed = input.toolResultCount > 0 || input.signature !== current.lastSignature;
 	if (progressed) {
-		// Work re-arms the hint: a second stall, after real progress, is a new question.
 		current.stalled = 0;
-		current.hintSent = false;
 		current.staleSettles = 0;
 	} else {
 		current.staleSettles += 1;
 		current.stalled += 1;
 	}
 
-	// A repeat stop is the shape a blocked agent has: it already answered once, it did
-	// not move the list, and it stopped again. Offer the block tool there — once per
-	// stall — and never stop the loop for it. The only stops are a clear list, the
-	// round cap, an error, and the agent asking for a person.
-	const hint = current.stalled >= 1 && !current.hintSent;
+	// A stop that did not move the list is the shape a blocked agent has, so every such
+	// nudge names the exit. Nothing here stops the loop for it: the only stops are a clear
+	// list, a configured cap, an error, and the agent asking for a person.
+	const hint = current.stalled >= 1;
 
 	if (config.maxRounds !== null && current.rounds >= config.maxRounds) {
 		const stale =
@@ -129,7 +123,6 @@ export function decide(input: DecisionInput): Decision {
 
 	current.rounds += 1;
 	current.lastSignature = input.signature;
-	if (hint) current.hintSent = true;
 	const of = config.maxRounds === null ? "" : `/${config.maxRounds}`;
 	return {
 		continue: true,
@@ -140,5 +133,5 @@ export function decide(input: DecisionInput): Decision {
 }
 
 export function initialState(): LoopState {
-	return { rounds: 0, stalled: 0, hintSent: false, lastSignature: "", staleSettles: 0, anchor: "" };
+	return { rounds: 0, stalled: 0, lastSignature: "", staleSettles: 0, anchor: "" };
 }
