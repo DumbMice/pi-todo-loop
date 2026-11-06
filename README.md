@@ -53,6 +53,7 @@ It stops for one of these reasons, and `/todoloop` always says which:
 | the list is clear | `stopped: list is clear` — the normal ending |
 | the model said it needs a person | `waiting for you: waiting on Dana's review` — it called `todo_loop_block`; your next message resumes |
 | a configured cap is reached | `stopped: 12 continuations used, 3 tasks still open` — only when `maxRounds` is set; if it ends with `the agent may need you`, ask what it is waiting on |
+| it never had a list | `stopped: no list` — the model has not called the todo tool in this session |
 | the turn failed | `stopped: turn outcome was error` — the provider failed, or you aborted it |
 
 ## When it helps
@@ -69,19 +70,22 @@ It stops for one of these reasons, and `/todoloop` always says which:
 - **You want an autonomous agent that invents its own goals.** This drives the list you have; nothing
   here adds work you did not ask for.
 - **You want a hard ceiling on cost.** There is no continuation cap by default — set `maxRounds` if you
-  want one, otherwise a model that keeps stopping will keep costing turns. `/todoloop` says `(no limit)`
-  and warns every tenth stall that changes nothing.
+  want one, otherwise a model that keeps stopping will keep costing turns. `/todoloop` says `(no limit)`,
+  and every tenth reply that leaves the list unchanged raises a warning.
 - **You want the continuations visible.** They are silent by design.
-- **You want the agent to keep going after you said stop.** Your instruction wins; a model that reads
-  "stop" as final can say so with `todo_loop_block`, and that stops the loop immediately.
+- **You want your "stop" to be final.** Your instruction reaches the model, not the loop. A model that
+  reads "stop" as final can say so with `todo_loop_block`, and that ends it; otherwise the loop keeps
+  asking, so use `/todoloop pause` while you are away.
 
 It buys *liveness*, not work. A model can satisfy the loop by closing tasks, including deleting
-placeholders, and a list that is never updated looks the same as one that is finished. Clearing the list
-is the only thing that stops it, so the list has to mean something to you.
+placeholders, and a list that is never updated looks the same as one that is finished. What ends it is
+the list emptying, the agent asking for a person, a turn that fails, the `maxRounds` limit you set, or
+you pausing it — so the list has to mean something to you.
 
 The extension never edits your prompt. The only *variable* text it gives the model is a one-line nudge —
-*continue, and read or update the list with the todo tool* — plus one constant tool declaration and the
-prompt entry pi derives from it (`todo_loop_block`; neither carries task state), so the list stays the
+*continue, and read or update the list with the todo tool* — which adds one sentence offering
+`todo_loop_block` when the agent has stopped twice without doing anything. Plus one constant tool
+declaration and the prompt entry pi derives from it; neither carries task state. The list stays the
 agent's to maintain and the conversation stays yours.
 
 ## Configuration
@@ -96,7 +100,7 @@ Optional, at `~/.pi/agent/todo-loop.json`:
 
 | Key | Default | What it does |
 |---|---|---|
-| `maxRounds` | `null` | continuations allowed per message; `null` means no limit, a number caps it |
+| `maxRounds` | `null` | continuations allowed per message; `null` means no limit, a number caps it (clamped to 1000) |
 
 A missing or broken file falls back to these values; a bad config never fails a turn.
 
@@ -107,13 +111,13 @@ A missing or broken file falls back to these values; a bad config never fails a 
 | `/todoloop` | status: mode, how often it has been asked to continue, replies since the todo list last changed, open tasks, whether it waits for you, why it last stopped, config path |
 | `/todoloop pause` | stop continuing until you resume or restart |
 | `/todoloop resume` | allow the next turn to continue again |
-| `/todoloop reset` | clear the counters, the list signature and any pending `todo_loop_block` |
+| `/todoloop reset` | restart the count for this message and forget any pending `todo_loop_block` |
 
 **Kill switch** — checked before every decision:
 
 ```bash
 touch ~/.pi/agent/todo-loop-off     # everywhere
-touch .pi/todo-loop-off             # this project only
+touch .pi/todo-loop-off             # this directory only
 ```
 
 ## Is it working?
@@ -127,7 +131,7 @@ replies since the todo list last changed: 0
 tasks open: 2 of 5
 counting from: your message 4f3c1a2e — a new message restarts the count
 last: continuing: 2 tasks still open, continue 1
-config ~/.pi/agent/todo-loop.json
+config /home/you/.pi/agent/todo-loop.json
 ```
 
 To count continuations in a session file:
@@ -140,11 +144,12 @@ grep -c 'todo-loop:continue' ~/.pi/agent/sessions/<project>/*.jsonl
 
 | Symptom | What to do |
 |---|---|
-| Nothing continues | Check `/todoloop`: `DISABLED` means a kill-switch file exists, `PAUSED` means you paused it. `last: stopped: no list` with `tasks open: 0 of 0` means the model has not created a list in this session; if the open count is non-zero the tool is writing a shape this extension does not read |
+| Nothing continues | Check `/todoloop`: `DISABLED` means a kill-switch file exists, `PAUSED` means you paused it. `last: stopped: no list` with `tasks open: 0 of 0` means the model has not created a list in this session. `last:` only changes on a reply that ends a run, so it can lag a turn behind the counts |
 | The model asked for a person | It called `todo_loop_block` with a reason, so the loop is stopped until your next message. The reason appears in `/todoloop` as `waiting for you: …` |
-| It stopped at the round cap | Only happens when `maxRounds` is set: the number of continuations for that message is spent; send another message. `no todo change for N replies` means it was working without updating the list; `the agent may need you` means it stopped on a stall — ask what it is waiting on |
-| Rounds jump by two, or continuations appear twice | Two continuation extensions are installed; `pi list` shows them, remove one, then `/reload` |
+| It stopped at your `maxRounds` limit | Only happens when `maxRounds` is set: the continuations for that message are used up; send another message. `no todo change for N replies` means it was working without updating the list; `the agent may need you` means it stopped twice in a row without doing anything — ask what it is waiting on |
+| Continuations jump by two, or the same reply appears twice | Two continuation extensions are installed; `pi list` shows them, remove one, then `/reload` |
 | The list is stale | The extension nudges, it does not write statuses. Nothing here fabricates progress |
+| No status or warning appears | `/todoloop` and the warnings need a UI. In `pi -p` and `--mode json` the loop still runs, but the only controls are the kill-switch file and `maxRounds` |
 | A warning says tasks were deleted | The list was emptied by a turn whose only tool was `todo`, and that turn deleted tasks rather than completing them. Check the work before trusting it |
 
 ## Uninstall
@@ -165,11 +170,11 @@ hidden continuation entries.
   `@juicesharp/rpiv-todo` 2.15.0.
 - **Node 22.19+**, the floor pi itself requires. The extension has no dependencies.
 
-Last verified 2026-11-04; the exact table and what was checked is in
+Last verified 2026-11-06; the exact table and what was checked is in
 [docs/pi-api-alignment.md](docs/pi-api-alignment.md).
 
-Install only one continuation extension: a second one that also requests turns makes the counters and
-the budget meaningless.
+Install only one continuation extension: a second one that also requests turns doubles every
+continuation and makes the counts meaningless.
 
 ## Further reading
 

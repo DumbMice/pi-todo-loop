@@ -78,8 +78,9 @@ invisibly either.
   produces a warning naming how many tasks were thrown away, because a deleted task is not finished
   work. `completed` calls say nothing — finishing work and ticking the boxes in one turn is the normal
   ending. Calls are counted rather than the snapshot's rows, because rpiv-todo keeps deleted tasks as
-  tombstones in every later snapshot; a result with no `action` at all falls back to the vague wording,
-  since there is nothing to inspect.
+  tombstones in every later snapshot; `clear` is announced the same way, since it empties the list
+  without completing anything; a result with no `action` at all falls back to the vague wording, since
+  there is nothing to inspect.
 
 ## Counters
 
@@ -95,8 +96,9 @@ invisibly either.
 - **A stop keeps the budget shut.** Hitting the cap does not clear the counters, so
   another extension's continuation or a provider retry under the same message cannot re-arm the budget.
   A queued human message is a new anchor and resets the budget the ordinary way.
-- **A stale list stops on the cap when one is set**, never earlier: any tool turn clears the stall.
-  That is why the cap reason appends `, no todo change for N replies`.
+- **A stale list burns to the cap when one is set**, never earlier: only the list changing clears the
+  count — a tool turn does not reach the decision at all. That is why the cap reason appends
+  `, no todo change for N replies`.
 - **Errors do not close the budget.** A turn that ends `error` or `aborted` stops the loop for that turn
   and spends no round; the counters are left as they are, so the next settle under the same message can
   continue — which is what a provider retry hits.
@@ -183,8 +185,8 @@ typo cannot defeat it (`maxRounds` ≤ 1000), and a value below 1 stays unlimite
   is no per-request block. Neither the snippet nor the guideline is gated by the kill switch or
   `/todoloop pause`; only the hooks and the call itself are. Whatever the model needs it reads with the `todo` tool, and that result
   is part of its own conversation rather than a parallel copy.
-- `context` walks the branch and returns `undefined` unless a marker actually has to be removed, so on
-  a normal turn it costs one projection pass. `turn_end` reads the config, probes the kill switches and
+- `context` never reads the branch: it returns `undefined` unless one of its own markers has to be
+  removed, so a normal turn costs one pass over the message list. `turn_end` reads the config, probes the kill switches and
   walks the branch on every turn.
 
 ## More

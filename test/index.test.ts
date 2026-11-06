@@ -626,3 +626,20 @@ test("a todo change resets the warning counter", async () => {
 	await run(h, "turn_end", settle);
 	assert.doesNotMatch(h.notices.join("\n"), /without updating the todo list/, "progress resets the count");
 });
+
+test("a turn that clears the list with the todo clear action is announced", async () => {
+	const h = harness([
+		{ type: "message", id: "user-1", message: { role: "user", content: "go" } },
+		{ type: "custom", customType: "rpiv-todo-state", id: "t1", data: { tasks: [task(1, "pending"), task(2, "pending")] } },
+	]);
+	await run(h, "turn_end", { outcome: "completed", toolResults: [], entries: [] });
+	const before = h.notices.length;
+	h.branch.push({ type: "custom", customType: "rpiv-todo-state", id: "t2", data: { tasks: [] } });
+	await run(h, "turn_end", {
+		outcome: "completed",
+		toolResults: [{ toolName: "todo", details: { action: "clear" } }],
+		entries: [],
+	});
+	const said = h.notices.slice(before).filter((line) => line.includes("cleared in the turn that emptied it"));
+	assert.equal(said.length, 1, "clearing the list says nothing was completed");
+});

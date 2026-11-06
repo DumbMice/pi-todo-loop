@@ -102,10 +102,9 @@ adding a `CHANGELOG.md` line — all in the same commit.
 - **Only a settle spends a round.** `turn_end` fires for every assistant response, including one that
   ended in a tool call; those already cause pi's next request, so the hook returns before deciding. A
   round, a marker and a stall are therefore always about a turn that would have ended the run.
-- **A tool turn clears the stall and spends no round** — except a tool turn that ends `error`/`aborted`,
-  which records the stop and leaves the counter alone. Tool turns already cause pi's next request, so
-  they must not consume a round; but they are work, so they reset `settleRun`. The stop right after the
-  tool turn is therefore not asked, and the one after it is.
+- **A tool turn spends no round and resets `settleRun`, whatever its outcome** — an errored or aborted
+  one also records the stop. Tool turns already cause pi's next request, so they must not consume a
+  round; because they are work, the stop right after one is not asked about, and the stop after that is.
 - **Nothing stops the loop for being quiet.** There is no strike limit: `settleRun === 2` decides when
   the nudge names `todo_loop_block` — the second consecutive stop with no work between them and no list
   change, once per run of settles, the one shape the question answers. A blocked agent and a lazy
@@ -185,7 +184,8 @@ introduces an edge.
 | an uncapped runaway warns every tenth no-progress settle | `an uncapped runaway warns every tenth settle that changes nothing` |
 | the warning counts replies since the list changed, not replies in a row | `the warning counts replies since the list changed, not replies in a row` |
 | emptying the list by deleting tasks warns; by completing them does not | `a list emptied by deleting its tasks is announced`, `a list emptied by ticking finished tasks is silent`, `an older tombstone does not make a completion look like a deletion` |
-| a stall clause that lands on the cap round is reported, not dropped | `state machine: cap stays shut across a repeated settle under the same message`, `a stale list stops on the cap with a reason that says so` |
+| clearing the list with `clear` is announced, since nothing was completed | `a turn that clears the list with the todo clear action is announced` |
+| a stall clause that lands on the cap round is reported, not dropped | `a cap that lands on the bare stall names it in the reason` |
 | the next human message clears the block and the stale `last:` | `the human's next message clears the block` |
 | a continuation appends one hidden `custom_message` with a constant body and preserves prior proposals | `turn_end requests one turn with a hidden marker when work is open` |
 | a malformed event payload does not throw | `turn_end tolerates a malformed event payload instead of throwing` |
@@ -211,7 +211,7 @@ introduces an edge.
 3. Add cases to `test/loop.test.ts`: the new rule, its boundary, and the ordering against the reset
    and cap rules. Order matters — the anchor reset runs before every other check.
 4. Add a user-visible line to the `/todoloop` status if an operator needs to see it.
-5. Update the README *Behaviour to expect* list and `CHANGELOG.md` under `[Unreleased]`.
+5. Update the README *What it looks like* section and `CHANGELOG.md` under `[Unreleased]`.
 
 ## Fragile areas
 
@@ -326,7 +326,7 @@ the request).
   the final actionable boundary that can append entries and request one continuation, and at
   `turn_end` the hook has to reconstruct "the run would otherwise end" from `toolResults.length === 0`.
   The consequence is a bounded wasted round when a human message is queued mid-turn, and the stall
-  reset lives in the adapter rather than in `decide()`. Moving the decision is the 0.2.0 change; it must
+  reset lives in the adapter rather than in `decide()`. Moving the decision is the next major change; it must
   ship with a CHANGELOG line because it changes which turns spend a round.
 - **`getBranch()` is not the model-visible context** (register item 16): after compaction the panel can
   show work the model has no list for.
@@ -377,7 +377,7 @@ Cutting a release:
 ```bash
 npm version patch --no-git-tag-version    # or minor/major; the tree must be clean
 VERSION="$(node -p "require('./package.json').version")"
-# move the CHANGELOG entry from [Unreleased] to "## [$VERSION] — YYYY-MM-DD"
+# move the CHANGELOG entry from [Unreleased] to "## [$VERSION] - YYYY-MM-DD"
 git add -A
 git commit -m "chore: release v$VERSION"
 git tag -a "v$VERSION" -m "v$VERSION"
