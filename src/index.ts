@@ -335,12 +335,14 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 		// settles since the list last changed and tool turns do not clear it, so this also
 		// catches the model this package exists for: tools running, list frozen.
 		if (next.staleSettles > 0 && next.staleSettles % 10 === 0) {
+			const open = snapshot.open.length;
+			const tasks = `${open} ${open === 1 ? "task is" : "tasks are"}`;
 			const brake =
 				config.maxRounds === null
 					? "/todoloop pause stops it, or set maxRounds in ~/.pi/agent/todo-loop.json to limit how often it continues"
-					: `it stops after ${config.maxRounds} continuations for one of your messages`;
+					: `Your limit is ${config.maxRounds} continuations per message and this one has used ${next.rounds}, so it stops on its next reply`;
 			ctx.ui?.notify?.(
-				`todo-loop: the agent has replied ${next.staleSettles} times without updating the todo list, ${snapshot.open.length} still open — it will keep going. ${brake}`,
+				`todo-loop: the agent has replied ${next.staleSettles} times without updating the todo list, and ${tasks} still open. It keeps being asked to continue. ${brake}`,
 				"warning",
 			);
 		}
@@ -397,18 +399,18 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 					: waitingNow
 						? "waiting (the agent asked for you; your next message resumes)"
 						: state.reason.startsWith("stopped:")
-							? "stopped (next human message starts a new budget)"
+							? "stopped (your next message restarts the count)"
 							: "active";
 			ctx.ui?.notify?.(
 				[
 					`todo-loop ${mode}`,
 					`asked to continue: ${state.rounds}${config.maxRounds === null ? " (no limit)" : ` of ${config.maxRounds}`}`,
-					`replies in a row with no todo change: ${state.stalled}`,
+					`replies since the todo list last changed: ${state.staleSettles}`,
 					// Only while it still belongs to this message: the human's next one
 					// resumes the loop even though the reason is still in memory.
 					...(waitingNow ? [`waiting: ${(state.waiting as { reason: string }).reason}`] : []),
 					`tasks open: ${snapshot.open.length} of ${snapshot.tasks.length}`,
-					`budget for message: ${snapshot.anchor || "(none yet)"}`,
+					`counting from: your message ${snapshot.anchor || "(none yet)"} — a new message restarts the count`,
 					`last: ${waitingNow ? `waiting for you: ${(state.waiting as { reason: string }).reason}` : state.reason}`,
 					`config ${configPath}`,
 				].join("\n"),

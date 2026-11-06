@@ -81,8 +81,8 @@ invisibly either.
 | Counter | Meaning | Reset by |
 |---|---|---|
 | `rounds` | continuations spent for the current human message | a new human message, `/todoloop reset`, a new process |
-| `stalled` | settles in a row that left the list unchanged — no cap; it decides when the block hint is offered | the list changing, a completed tool turn, a new human message |
-| `staleSettles` | settles since the list last changed | the list changing, a new human message |
+| `stalled` | settles in a row that left the list unchanged — reported, and named in a cap stop | the list changing, a completed tool turn, a new human message |
+| `staleSettles` | settles since the list last changed — drives the every-tenth warning to the human | the list changing, a new human message |
 | `settleRun` | assistant turns since the last tool turn — `2` is the stop the hint asks on | any tool turn, a new human message, `/todoloop reset` |
 
 - **One budget per human message.** A user-role message carrying a `customType` (this extension's

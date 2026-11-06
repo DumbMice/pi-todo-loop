@@ -11,7 +11,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { MARKER_TYPE } from "../src/index.ts";
-import { branchWith, callTool, harness, marker, run, setHuman, task } from "./helpers/harness.ts";
+import { branchWith, callTool, harness, marker, run, setHuman, setTasks, task } from "./helpers/harness.ts";
 
 test("context removes a marker next to a human message and adds nothing", async () => {
 	const h = harness(branchWith([task(1, "pending"), task(2, "in_progress")]));
@@ -529,10 +529,36 @@ test("an uncapped runaway warns every tenth settle that changes nothing", async 
 	assert.doesNotMatch(h.notices.join("\n"), /without updating the todo list/, "nine is too early to shout");
 
 	await run(h, "turn_end", settle); // staleSettles 10
-	assert.match(h.notices.at(-1) as string, /replied 10 times without updating the todo list, 1 still open/);
+	assert.match(h.notices.at(-1) as string, /replied 10 times without updating the todo list, and 1 task is still open/);
 	assert.match(h.notices.at(-1) as string, /\/todoloop pause stops it, or set maxRounds in ~\/.pi\/agent\/todo-loop.json/);
 
 	const after = h.notices.length;
 	await run(h, "turn_end", settle); // stalled 11
 	assert.equal(h.notices.length, after, "and it does not repeat every turn");
+});
+
+test("the warning counts replies since the list changed, not replies in a row", async () => {
+	// `stalled` resets on a tool turn; `staleSettles` does not. This is the only shape that
+	// tells the two apart, and it is the shape the warning exists for: tools running, list
+	// frozen. Keying the warning on `stalled` would stay silent here.
+	const h = harness(branchWith([task(1, "pending")]));
+	const settle = { outcome: "completed", toolResults: [], entries: [] };
+	const toolTurn = { outcome: "completed", toolResults: [{ role: "toolResult" }], entries: [] };
+
+	for (let turn = 0; turn < 10; turn += 1) await run(h, "turn_end", settle);
+	assert.doesNotMatch(h.notices.join("\n"), /without updating the todo list/, "nine replies since the change is still early");
+
+	await run(h, "turn_end", toolTurn);
+	await run(h, "turn_end", settle); // staleSettles 10, stalled 1
+	assert.match(h.notices.at(-1) as string, /replied 10 times without updating the todo list/);
+});
+
+test("a todo change resets the warning counter", async () => {
+	const h = harness(branchWith([task(1, "pending")]));
+	const settle = { outcome: "completed", toolResults: [], entries: [] };
+
+	for (let turn = 0; turn < 9; turn += 1) await run(h, "turn_end", settle);
+	setTasks(h, [task(1, "in_progress"), task(2, "pending")]); // the list moved
+	await run(h, "turn_end", settle);
+	assert.doesNotMatch(h.notices.join("\n"), /without updating the todo list/, "progress resets the count");
 });

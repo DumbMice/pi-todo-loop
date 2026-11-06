@@ -153,7 +153,7 @@ async function playAll(scenario: Scenario): Promise<Outcome> {
 	await h.commands.todoloop.handler("", h.ctx);
 	const status = h.notices.at(-1) as string;
 	const continues = status.match(/asked to continue: (\d+)/);
-	const changed = status.match(/replies in a row with no todo change: (\d+)/);
+	const changed = status.match(/replies since the todo list last changed: (\d+)/);
 	const reason = status.match(/last: (.*)/)?.[1] ?? status;
 	return {
 		continuations,
@@ -192,7 +192,16 @@ const SCENARIOS: Scenario[] = [
 			{ do: "tool" },
 			{ do: "settle" },
 		],
-		expect: { continuations: 3, markers: 3, rounds: 3, stalled: 1, reason: /3 continuations used/, mode: /stopped/ },
+		expect: {
+			continuations: 3,
+			markers: 3,
+			rounds: 3,
+			stalled: 4,
+			reason: /3 continuations used/,
+			mode: /stopped/,
+			// The `stalled === 1` variant would ask twice here; `settleRun === 2` asks once.
+			hintMarkers: 1,
+		},
 	},
 	{
 		name: "a tool turn spends no round and writes no marker",
@@ -325,7 +334,7 @@ for (const scenario of SCENARIOS) {
 		const outcome = await playAll(scenario);
 		assert.equal(outcome.continuations, scenario.expect.continuations, "continuations proposed");
 		assert.equal(outcome.rounds, scenario.expect.rounds, "continuations left");
-		assert.equal(outcome.stalled, scenario.expect.stalled, "replies without a todo change");
+		assert.equal(outcome.stalled, scenario.expect.stalled, "replies since the todo list last changed");
 		assert.equal(outcome.markers, scenario.expect.markers, "markers written");
 		if (scenario.expect.hintMarkers !== undefined) {
 			assert.equal(outcome.hints, scenario.expect.hintMarkers, "markers that named the block tool");

@@ -10,8 +10,8 @@ export interface LoopState {
 	/** Continuations started since the last human message. */
 	rounds: number;
 	/**
-	 * Consecutive settles that neither ran a tool nor changed the task list. No cap:
-	 * it decides when to offer the block tool, not when to give up.
+	 * Consecutive settles that neither ran a tool nor changed the task list. Not a limit:
+	 * it is reported, and the cap reason names it.
 	 */
 	stalled: number;
 	/**
@@ -21,7 +21,7 @@ export interface LoopState {
 	settleRun: number;
 	/** Task signature at the previous decision, to detect list changes. */
 	lastSignature: string;
-	/** Settles since the list last changed: a stale list stops on the cap. */
+	/** Settles since the list last changed. Drives the every-tenth warning to the human. */
 	staleSettles: number;
 	/** Id of the user message the current budget belongs to. */
 	anchor: string;

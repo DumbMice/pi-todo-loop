@@ -123,9 +123,9 @@ After a response that made no tool calls while tasks are open, `/todoloop` shoul
 ```
 todo-loop active
 asked to continue: 1 (no limit)
-replies in a row with no todo change: 0
+replies since the todo list last changed: 0
 tasks open: 2 of 5
-budget for message: 4f3c1a2e
+counting from: your message 4f3c1a2e — a new message restarts the count
 last: continuing: 2 tasks still open, continue 1
 config ~/.pi/agent/todo-loop.json
 ```

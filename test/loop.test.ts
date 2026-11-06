@@ -20,7 +20,8 @@ test("continues while work is open and the turn did work", () => {
 	const decision = decide(input());
 	assert.equal(decision.continue, true);
 	assert.equal(decision.next.rounds, 1);
-	assert.match(decision.reason, /1 task still open, continue 1/, "no cap by default, so the reason has no denominator");
+	assert.match(decision.reason, /1 task still open, continue 1/);
+	assert.doesNotMatch(decision.reason, /\d\/\d/, "no cap by default, so the reason has no denominator");
 });
 
 test("stops when the list is clear", () => {
@@ -89,6 +90,27 @@ test("a configured round cap stops the loop", () => {
 	const decision = decide(input({ state, config }));
 	assert.equal(decision.continue, false);
 	assert.match(decision.reason, /3 continuations used/);
+});
+
+test("a cap that lands on the bare stall names it in the reason", () => {
+	// The one continuation that would have carried the clause never happens, so the reason
+	// has to say it. `settleRun: 1` means this settle is the second stop in a row.
+	const config = { ...DEFAULTS, maxRounds: 3 };
+	const state = { ...initialState(), rounds: 3, anchor: "user-1", lastSignature: "1:pending", settleRun: 1 };
+	const decision = decide(input({ state, config, toolResultCount: 0 }));
+	assert.equal(decision.continue, false);
+	assert.match(decision.reason, /the agent may need you/);
+});
+
+test("a new human message clears every counter, including the warning's", () => {
+	const spent = { ...initialState(), anchor: "user-1", rounds: 5, stalled: 4, staleSettles: 9, settleRun: 5 };
+	const decision = decide(input({ state: spent, anchor: "user-2" }));
+	assert.equal(decision.next.rounds, 1, "a fresh budget, with this continuation counted");
+	assert.equal(decision.next.stalled, 0);
+	assert.equal(decision.next.staleSettles, 0, "otherwise a new message would warn almost immediately");
+	// This settle is the first turn of the new run, so it counts as 1 — what matters is that
+	// the previous message's value (5) does not carry over and hide every later hint.
+	assert.equal(decision.next.settleRun, 1);
 });
 
 test("a new human message resets the budget", () => {
