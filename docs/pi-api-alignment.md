@@ -5,11 +5,11 @@ versions that was established against.
 
 | Component | Tested version | Recorded in |
 |---|---|---|
-| `@earendil-works/pi-coding-agent` | **1.5.0** | `PI_API_SNAPSHOT` in `src/index.ts` |
+| `@earendil-works/pi-coding-agent` | **1.5.1** | `PI_API_SNAPSHOT` in `src/index.ts` |
 | `@juicesharp/rpiv-todo` | **2.15.0** | this file (item 12) |
 | Node | 22.23.2 | README *Requirements* (which states the floor, 22.19+) |
 
-Last verified **2026-11-06**. Bump a row here, its constant where one exists, and the README table in
+Last verified **2026-11-10**. Bump a row here, its constant where one exists, and the README table in
 the same commit as the change that depends on it.
 
 The contract is followed where it is documented: `turn_end` boundary proposals, draft entry types,

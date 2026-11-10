@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Verified against **pi 1.5.1**: `PI_API_SNAPSHOT` and the tested-version table move with it. Nothing in
+  the extension needed changing — 1.5.1's breaking changes touch `GrepOperations.readFile` callbacks and
+  the `tools: []` field for OpenAI-compatible endpoints, neither of which this package uses. A live
+  session on 1.5.1 created a list, wrote two files, closed both tasks and stopped with no nudges, and
+  the tool still renders in the prompt's `<tools>` and `<rules>` sections.
+
 ## [0.3.0] - 2026-11-06
 
 ### Added

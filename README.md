@@ -165,12 +165,12 @@ hidden continuation entries.
 
 ## Requirements
 
-- **pi 1.5.0** (tested; needs the `turn_end` boundary).
+- **pi 1.5.1** (tested; needs the `turn_end` boundary).
 - **A todo tool** named `todo` that stores its list in the session — tested with
   `@juicesharp/rpiv-todo` 2.15.0.
 - **Node 22.19+**, the floor pi itself requires. The extension has no dependencies.
 
-Last verified 2026-11-06; the exact table and what was checked is in
+Last verified 2026-11-10; the exact table and what was checked is in
 [docs/pi-api-alignment.md](docs/pi-api-alignment.md).
 
 Install only one continuation extension: a second one that also requests turns doubles every

@@ -23,7 +23,7 @@ const AGENTS = read("../AGENTS.md");
 const ALIGNMENT = read("../docs/pi-api-alignment.md");
 const CHANGELOG = read("../CHANGELOG.md");
 const PACKAGE = JSON.parse(read("../package.json"));
-const VERIFIED_DATE = "2026-11-06";
+const VERIFIED_DATE = "2026-11-10";
 const TESTED_RPIV_TODO = "2.15.0";
 
 const isSeparator = (row: string): boolean =>
