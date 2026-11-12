@@ -165,7 +165,7 @@ hidden continuation entries.
 
 ## Requirements
 
-- **pi 1.5.1** (tested; needs the `turn_end` boundary).
+- **pi 1.5.2** (tested; needs the `turn_end` boundary).
 - **A todo tool** named `todo` that stores its list in the session — tested with
   `@juicesharp/rpiv-todo` 2.15.0.
 - **Node 22.19+**, the floor pi itself requires. The extension has no dependencies.

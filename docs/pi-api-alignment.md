@@ -5,7 +5,7 @@ versions that was established against.
 
 | Component | Tested version | Recorded in |
 |---|---|---|
-| `@earendil-works/pi-coding-agent` | **1.5.1** | `PI_API_SNAPSHOT` in `src/index.ts` |
+| `@earendil-works/pi-coding-agent` | **1.5.2** | `PI_API_SNAPSHOT` in `src/index.ts` |
 | `@juicesharp/rpiv-todo` | **2.15.0** | this file (item 12) |
 | Node | 22.23.2 | README *Requirements* (which states the floor, 22.19+) |
 

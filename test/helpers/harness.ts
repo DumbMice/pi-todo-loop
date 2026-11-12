@@ -44,7 +44,7 @@ export function branchWith(tasks: unknown[]): unknown[] {
 
 /**
  * A marker as pi projects it into `event.messages`: a `custom_message` entry arrives
- * with `role: "custom"`, not `role: "user"` (`createCustomMessage` in pi 1.5.1).
+ * with `role: "custom"`, not `role: "user"` (`createCustomMessage` in pi 1.5.2).
  * Using the real shape is what makes the alternation tests able to fail.
  */
 export const marker = (): Record<string, unknown> => ({

@@ -14,7 +14,7 @@
  *
  *   - A `turn_end` continuation must leave the final message role != assistant,
  *     so one entry is mandatory (`_buildBoundaryContext().canContinue` in pi
- *     1.5.1). We append a `custom_message` with `display: false`.
+ *     1.5.2). We append a `custom_message` with `display: false`.
  *   - Markers are never added to a request by this extension, and are only removed
  *     when one would sit next to a human message. A marker at the tail is the nudge.
  *   - pi's non-assistant requirement binds the *persisted projection* checked at
@@ -37,7 +37,7 @@ import { readSnapshot } from "./state.ts";
  * No pi type import on purpose: the extension is loaded by pi and the type
  * package would otherwise need to be a dependency, for one signature.
  */
-export const PI_API_SNAPSHOT = "1.5.1";
+export const PI_API_SNAPSHOT = "1.5.2";
 
 /** The part of `ExtensionContext` this extension reads. */
 interface SessionContext {
