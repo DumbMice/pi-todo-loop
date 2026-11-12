@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-11-10
+
+### Changed
+
+- Verified against **pi 1.5.2**: its only changes are session handling when a folder is gone, the
+  `/import` fixes behind it, and an Anthropic OAuth version string. `docs/extensions.md` is
+  byte-identical to 1.5.1, so no extension surface moved. A live run on 1.5.2 created two tasks, wrote
+  both files, closed both and stopped without a nudge, and the tool still renders in `<tools>` and
+  `<rules>`.
+
 ## [0.3.1] - 2026-11-10
 
 ### Changed
