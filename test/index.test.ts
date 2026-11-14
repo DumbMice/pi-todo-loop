@@ -199,6 +199,32 @@ test("pause stops the continuation and the marker cleanup", async () => {
 	assert.equal((await run(h, "turn_end", work))?.continue, true);
 	assert.ok(await run(h, "context", { messages: history }));
 });
+test("/todoloop Tab completion is registered and filters the argument by prefix", async () => {
+	const h = harness(branchWith([task(1, "pending")]));
+	const complete = h.commands.todoloop.getArgumentCompletions;
+	assert.equal(typeof complete, "function", "pi draws the suggestion list from this hook");
+	if (!complete) return;
+
+	assert.deepEqual(complete("")?.map((item) => item.value), ["status", "pause", "resume", "reset"], "an empty prefix offers the whole list");
+	assert.deepEqual(complete("p")?.map((item) => item.value), ["pause"]);
+	assert.deepEqual(complete("re")?.map((item) => item.value), ["resume", "reset"]);
+	assert.deepEqual(complete("PAU")?.map((item) => item.value), ["pause"], "the parser lowercases, so completion does too");
+	assert.equal(complete("nope"), null, "nothing matches: pi expects null, not an empty list");
+	assert.equal(complete("pause now"), null, "a space means an argument is being typed");
+});
+
+test("/todoloop completes only arguments its parser accepts", async () => {
+	// The completions and the parse whitelist read one table, so a name cannot be offered
+	// by Tab and then rejected as unknown.
+	const h = harness(branchWith([task(1, "pending")]));
+	const offered = h.commands.todoloop.getArgumentCompletions?.("") ?? [];
+	assert.equal(offered.length, 4);
+	for (const { value } of offered) {
+		await h.commands.todoloop.handler(value, h.ctx);
+		assert.doesNotMatch(h.notices.at(-1) as string, /unknown argument/, `${value} parses`);
+	}
+});
+
 test("a turn that ran tools spends no round and appends no marker", async () => {
 	// `turn_end` fires per assistant response. A response that ended in a tool call
 	// already causes pi's next request, so it is not a continuation and must not

@@ -181,6 +181,7 @@ introduces an edge.
 | the kill switch silences the block tool too | `the kill switch also silences todo_loop_block` |
 | the block tool declares a prompt snippet and a self-naming guideline, so pi lists it in `<tools>`/`<rules>` | `the block tool declares a prompt snippet and a self-naming guideline` |
 | a paused loop refuses the block tool and stays silent | `a paused loop refuses todo_loop_block and stays silent` |
+| Tab completion offers exactly the arguments the parser accepts, and only the first word | `/todoloop Tab completion is registered and filters the argument by prefix`, `/todoloop completes only arguments its parser accepts` |
 | an uncapped runaway warns every tenth no-progress settle | `an uncapped runaway warns every tenth settle that changes nothing` |
 | the warning counts replies since the list changed, not replies in a row | `the warning counts replies since the list changed, not replies in a row` |
 | emptying the list by deleting tasks warns; by completing them does not | `a list emptied by deleting its tasks is announced`, `a list emptied by ticking finished tasks is silent`, `an older tombstone does not make a completion look like a deletion` |

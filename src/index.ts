@@ -8,7 +8,7 @@
  *   turn_end   request another turn while tasks are open (uncapped unless maxRounds is
  *              set), and stop when the agent calls todo_loop_block
  *   todo_loop_block  the agent's "I need a person" signal, scoped to one message
- *   /todoloop  status | pause | resume | reset
+ *   /todoloop  status | pause | resume | reset   (the list is `COMMAND_INFO`; Tab completes it)
  *
  * Architecture notes worth keeping in mind when changing this file:
  *
@@ -82,6 +82,45 @@ export interface TodoLoopOptions {
 	killSwitchGlobal?: string;
 	/** Replaces `.pi/todo-loop-off`, resolved against `ctx.cwd`. */
 	killSwitchLocal?: string;
+}
+
+/**
+ * One table for the `/todoloop` argument: Tab completion, the parse whitelist and the
+ * "use …" text all read it. They were three separate lists, which is how a subcommand
+ * ends up documented but unparseable (or the reverse).
+ */
+export const COMMAND_INFO = [
+	{ name: "status", hint: "mode, continuations used, open tasks, why it last stopped" },
+	{ name: "pause", hint: "stop continuing until resume or restart" },
+	{ name: "resume", hint: "let the next turn continue again" },
+	{ name: "reset", hint: "restart the count for this message and forget a pending block" },
+] as const;
+
+const COMMAND_NAMES: readonly string[] = COMMAND_INFO.map((command) => command.name);
+
+/** "status, pause, resume or reset" — derived, so a message cannot name a command that does not exist. */
+export const COMMAND_USAGE = `${COMMAND_NAMES.slice(0, -1).join(", ")} or ${COMMAND_NAMES[COMMAND_NAMES.length - 1]}`;
+
+/** The shape pi's `getArgumentCompletions` returns. Typed here because there is no pi import. */
+export interface ArgCompletion {
+	value: string;
+	label: string;
+	description?: string;
+}
+
+/**
+ * Tab completion for `/todoloop <arg>`. Only the first word is completed: after a space the
+ * user is typing an argument, and offering `status` there would insert it in the wrong place.
+ * `null` means "no suggestions", which is what pi expects when nothing matches.
+ */
+export function completeArgument(prefix: string): ArgCompletion[] | null {
+	const typed = (prefix ?? "").trimStart();
+	if (/\s/.test(typed)) return null;
+	const needle = typed.toLowerCase();
+	const matches = COMMAND_INFO.filter((command) => command.name.startsWith(needle));
+	return matches.length === 0
+		? null
+		: matches.map((command) => ({ value: command.name, label: command.name, description: command.hint }));
 }
 
 function branchEntries(ctx: SessionContext): readonly unknown[] {
@@ -364,6 +403,7 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 
 	pi.registerCommand("todoloop", {
 		description: "Show or control the todo-driven continuation loop",
+		getArgumentCompletions: completeArgument,
 		handler: async (args: string, ctx: SessionContext) => {
 			const raw = (args ?? "").trim();
 			const [command, ...rest] = raw.toLowerCase().split(/\s+/);
@@ -391,14 +431,14 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 				return;
 			}
 
-			if (command !== "" && !["status", "pause", "resume", "reset"].includes(command)) {
+			if (command !== "" && !COMMAND_NAMES.includes(command)) {
 				ctx.ui?.notify?.(
-					`todo-loop: unknown argument "${command}"; use status, pause, resume or reset`,
+					`todo-loop: unknown argument "${command}"; use ${COMMAND_USAGE}`,
 					"warning",
 				);
 			} else if (rest.length > 0) {
 				ctx.ui?.notify?.(
-					`todo-loop: ignoring extra arguments "${rest.join(" ")}"; use status, pause, resume or reset`,
+					`todo-loop: ignoring extra arguments "${rest.join(" ")}"; use ${COMMAND_USAGE}`,
 					"warning",
 				);
 			}

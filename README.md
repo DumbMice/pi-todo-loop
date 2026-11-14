@@ -113,6 +113,8 @@ A missing or broken file falls back to these values; a bad config never fails a 
 | `/todoloop resume` | allow the next turn to continue again |
 | `/todoloop reset` | restart the count for this message and forget any pending `todo_loop_block` |
 
+Tab completes the argument: `status`, `pause`, `resume`, `reset`.
+
 **Kill switch** — checked before every decision:
 
 ```bash

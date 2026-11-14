@@ -10,7 +10,7 @@
 import { existsSync, mkdirSync, mkdtempSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import todoLoop, { MARKER_TYPE } from "../../src/index.ts";
+import todoLoop, { MARKER_TYPE, type ArgCompletion } from "../../src/index.ts";
 
 type Handler = (event: any, ctx: any) => Promise<any> | any;
 
@@ -18,7 +18,10 @@ export interface Harness {
 	/** The branch `ctx.sessionManager.getBranch()` returns. Mutate it to script state. */
 	branch: unknown[];
 	handlers: Record<string, Handler[]>;
-	commands: Record<string, { handler: Handler }>;
+	commands: Record<
+		string,
+		{ handler: Handler; getArgumentCompletions?: (prefix: string) => ArgCompletion[] | null }
+	>;
 	/** Tools the extension registered, by name — `todo_loop_block` lives here. */
 	tools: Record<string, any>;
 	notices: string[];
@@ -61,14 +64,14 @@ export function harness(branch: unknown[], config?: Record<string, unknown>): Ha
 
 	const notices: string[] = [];
 	const handlers: Record<string, Handler[]> = {};
-	const commands: Record<string, { handler: Handler }> = {};
+	const commands: Harness["commands"] = {};
 	const tools: Record<string, any> = {};
 
 	const pi = {
 		on(name: string, handler: Handler) {
 			(handlers[name] ??= []).push(handler);
 		},
-		registerCommand(name: string, definition: { handler: Handler }) {
+		registerCommand(name: string, definition: Harness["commands"][string]) {
 			commands[name] = definition;
 		},
 		registerTool(definition: any) {
