@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { MARKER_TYPE } from "../src/index.ts";
+import { MARKER_TYPE, parseCommand } from "../src/index.ts";
 import { branchWith, callTool, harness, marker, run, setHuman, setTasks, task } from "./helpers/harness.ts";
 
 test("context removes a marker next to a human message and adds nothing", async () => {
@@ -668,4 +668,30 @@ test("a turn that clears the list with the todo clear action is announced", asyn
 	});
 	const said = h.notices.slice(before).filter((line) => line.includes("cleared in the turn that emptied it"));
 	assert.equal(said.length, 1, "clearing the list says nothing was completed");
+});
+
+test("every completion value is the whole argument, so accepting it runs that subcommand", async () => {
+	// pi replaces the entire argument with `value`. A value that is only the fragment the user
+	// typed — or one that carries an extra word — would parse as a different command, which is
+	// the completion bug class. Pin the round trip for every suggestion, from every prefix.
+	const h = harness(branchWith([task(1, "pending")]));
+	const complete = h.commands.todoloop.getArgumentCompletions;
+	if (!complete) return;
+
+	for (const prefix of ["", "s", "p", "re", "res", "PAU"]) {
+		for (const item of complete(prefix) ?? []) {
+			assert.equal(parseCommand(item.value), item.value, `${item.value} must parse as itself`);
+			assert.doesNotMatch(item.value, /\s/, `${item.value} must not carry a second word`);
+			assert.ok(
+				item.value.startsWith(prefix.trim().toLowerCase()),
+				`${item.value} must continue what was typed (${prefix})`,
+			);
+		}
+	}
+
+	// The shape of the bug: "/cmd on --" pasting "/cmd --all". After Tab, the text the user
+	// has must still be that same subcommand.
+	assert.equal(parseCommand("p"), "p");
+	assert.equal(parseCommand(complete("p")?.[0]?.value ?? ""), "pause", "accepting the suggestion runs pause");
+	assert.equal(parseCommand("pause now"), "pause", "an argument after the subcommand is still that subcommand");
 });

@@ -98,6 +98,15 @@ export const COMMAND_INFO = [
 
 const COMMAND_NAMES: readonly string[] = COMMAND_INFO.map((command) => command.name);
 
+/**
+ * Parse a `/todoloop` argument down to its subcommand: first word, lowercased. Shared with the
+ * completion test, because pi replaces the *whole* argument with a completion's `value` — so a
+ * value that is only the fragment the user typed would land as a different command.
+ */
+export function parseCommand(raw: string): string {
+	return (raw ?? "").trim().toLowerCase().split(/\s+/)[0] ?? "";
+}
+
 /** "status, pause, resume or reset" — derived, so a message cannot name a command that does not exist. */
 export const COMMAND_USAGE = `${COMMAND_NAMES.slice(0, -1).join(", ")} or ${COMMAND_NAMES[COMMAND_NAMES.length - 1]}`;
 
@@ -406,7 +415,8 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 		getArgumentCompletions: completeArgument,
 		handler: async (args: string, ctx: SessionContext) => {
 			const raw = (args ?? "").trim();
-			const [command, ...rest] = raw.toLowerCase().split(/\s+/);
+			const command = parseCommand(raw);
+			const rest = raw.toLowerCase().split(/\s+/).slice(1);
 			const config = loadConfig(configPath);
 
 			if (command === "pause") {
