@@ -171,9 +171,13 @@ introduces an edge.
 | only a settle spends a round: tool turns cost nothing | `a turn that ran tools spends no round and appends no marker` |
 | a tool turn restarts the hint run, so a tool-heavy stall is still asked | `tool turns spend no round, clear the stall, and restart the hint's run` |
 | only the first nudge that did not move the list names the block tool | `only the first nudge that did not move the list names todo_loop_block` |
-| `todo_loop_block` stops the loop and reports the reason | `todo_loop_block stops the loop for this message and reports the reason` |
+| `todo_loop_block` stops the loop and reports the reason | `todo_loop_block stops the loop until a reply or a wake, and reports the reason` |
 | a block without a reason is refused | `a block without a reason is refused and does not stop the loop` |
 | the human's next message clears the block | `the human's next message clears the block` |
+| a wake clears the block, and the block's own tool turn does not | `a block ends when the session is woken, not only when the human speaks`, `state machine: a wake ends the block and the loop continues in the same message` |
+| a block whose own turn lands while the loop is off does not eat the next wake | `a block that ends while paused does not eat the next wake`, `state machine: a block whose own turn lands while paused still ends on the wake`, `state machine: a block whose own turn lands under the kill switch still ends on the wake` |
+| the description, the parameter and the post-block result all allow waiting | `the block tool declares a prompt snippet and a self-naming guideline`, `todo_loop_block stops the loop until a reply or a wake, and reports the reason` |
+| the nudge's second reason (waiting on work) is documented and pinned | `the nudge's second reason is described where the nudge is described`, `only the first nudge that did not move the list names todo_loop_block` |
 | the block stops the loop and the next human message resumes it, end to end | `state machine: the agent asks for a person: the loop stops until the human answers` |
 | a block survives pause and resume, and reset clears it | `state machine: a block survives pause and resume, and reset clears it`, `/todoloop reset clears a pending block` |
 | the block's tool turn costs no round, and no marker is written after it | `state machine: the block call's tool turn costs no round, and the settle after it stops` |
@@ -314,7 +318,7 @@ grep -c 'todo-loop:continue' ~/.pi/agent/sessions/--<project>--/*.jsonl   # 0 is
 For the prompt half, run with `--mode json` and confirm the tool reached the system prompt section:
 
 ```bash
-pi -ne -e . --mode json -p "reply ok" | grep -o 'todo_loop_block: Stop the todo loop'
+pi -ne -e . --mode json -p "reply ok" | grep -o 'todo_loop_block: Pause the todo loop'
 ```
 
 and read the pi changelog for `custom_message`, `display`, `canContinue`, `promptSnippet`,

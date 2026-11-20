@@ -57,9 +57,9 @@ export interface Decision {
 	next: LoopState;
 	reason: string;
 	/**
-	 * True when this continuation should carry the "if you cannot proceed without a
-	 * person, call todo_loop_block" clause: the first settle since real progress that did
-	 * not move the list. One request, not a series.
+	 * True when this continuation should carry the "if you cannot proceed — you need a
+	 * person, or you are waiting on work you started — call todo_loop_block" clause: the
+	 * first settle since real progress that did not move the list. One request, not a series.
 	 */
 	hint: boolean;
 }

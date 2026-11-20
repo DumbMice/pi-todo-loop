@@ -7,7 +7,7 @@
  *              nothing else: the prompt is never rewritten with task state
  *   turn_end   request another turn while tasks are open (uncapped unless maxRounds is
  *              set), and stop when the agent calls todo_loop_block
- *   todo_loop_block  the agent's "I need a person" signal, scoped to one message
+ *   todo_loop_block  the agent's "I cannot proceed on my own" signal: a person, or work it started
  *   /todoloop  status | pause | resume | reset   (the list is `COMMAND_INFO`; Tab completes it)
  *
  * Architecture notes worth keeping in mind when changing this file:
@@ -66,7 +66,7 @@ export const MARKER_BODY =
  * model the human outranks it.
  */
 export const MARKER_BODY_HINT =
-	"Continue with the open todo tasks; use the todo tool to read and update the list. If you cannot proceed without a person, call todo_loop_block with the reason. If the human's latest instruction says to stop or limits what to do, do that instead.";
+	"Continue with the open todo tasks; use the todo tool to read and update the list. If you cannot proceed — you need a person, or you are waiting on work you started — call todo_loop_block with the reason. If the human's latest instruction says to stop or limits what to do, do that instead.";
 
 export const CONFIG_PATH = join(homedir(), ".pi/agent/todo-loop.json");
 const KILL_SWITCH_GLOBAL = join(homedir(), ".pi/agent/todo-loop-off");
@@ -158,35 +158,44 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 		paused: boolean;
 		reason: string;
 		lastOpenCount: number;
-		/** Set by `todo_loop_block`: this message waits for a human. */
+		/**
+		 * Set by `todo_loop_block`: stop nudging until the human replies, or (for "waiting on work
+		 * I started") until that work finishes and the session is woken.
+		 */
 		waiting: { reason: string; anchor: string } | null;
+		/** The block call's own tool turn must not clear the wait it just set. */
+		waitingJustSet: boolean;
 	} = {
 		...initialState(),
 		paused: false,
 		reason: "idle",
 		lastOpenCount: 0,
 		waiting: null,
+		waitingJustSet: false,
 	};
 
-	// The agent's own exit. A blocked agent looks exactly like a lazy one from the
-	// loop's side, so the loop cannot detect it — but the agent can say so. One
-	// sentence of state, scoped to this message: the human's next message resumes.
+	// The agent's own exit. A blocked agent looks exactly like a lazy one from the loop's
+	// side, so the loop cannot detect it — but the agent can say so: a person, or work it
+	// started. One sentence of state, ended by the human's reply or by a wake.
 	pi.registerTool({
 		name: "todo_loop_block",
 		label: "Block the todo loop",
 		description:
-			"Stop the automatic continuation loop for the rest of this message because you need a person: a decision, a review, a credential or information only the human has. The human is shown your reason and their next message resumes the loop. Use it only when you cannot proceed on the open tasks without them.",
+			"Stop the automatic continuation loop because you cannot proceed on your own: either you need a person — a decision, a review, a credential, information only they have — or you are waiting on work you already started, such as a background subagent or a long job. Say what you are waiting for: the human sees it, and the loop resumes when they reply or when that work wakes you. Use it only when continuing would mean inventing work.",
 		// Without a snippet pi leaves the tool out of the prompt's `<tools>` summary; it is
 		// still in the request's tool array, but a model reading the prompt summary does not
 		// see the exit until the nudge names it. The exit must not be hidden that way.
-		promptSnippet: "Stop the todo loop for this message and ask the human for what you need",
+		promptSnippet: "Pause the todo loop until a person replies or a job finishes",
 		promptGuidelines: [
-			"Use todo_loop_block when you cannot proceed on the open todo tasks without a person — a decision, a review, a credential or information only they have. If the choice is yours to make, pick the reasonable option and say what you assumed instead. Do not use it to end work you could finish yourself.",
+			"Use todo_loop_block when you cannot proceed on the open todo tasks — because you need a person (a decision, a review, a credential) or because you are waiting on work you already started, such as a background subagent, which will tell you when it finishes. Name what you are waiting for. If the choice is yours to make, pick the reasonable option and say what you assumed instead; do not use it to end work you could finish yourself. While something you started is still running, block once and wait to be woken — do not poll the todo list or the job's status to look busy.",
 		],
 		parameters: {
 			type: "object",
 			properties: {
-				reason: { type: "string", description: "What you need from the human, in one sentence." },
+				reason: {
+					type: "string",
+					description: "What you are waiting for, or what you need from a person, in one sentence.",
+				},
 			},
 			required: ["reason"],
 			additionalProperties: false,
@@ -215,7 +224,7 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 					content: [
 						{
 							type: "text",
-							text: "todo_loop_block needs a reason: one sentence saying what you need from the human.",
+							text: "todo_loop_block needs a reason: one sentence saying what you are waiting for, or what you need from a person.",
 						},
 					],
 					details: undefined,
@@ -223,13 +232,14 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 			}
 			const snapshot = readSnapshot(branchEntries(ctx));
 			state.waiting = { reason, anchor: snapshot.anchor };
-			state.reason = `waiting for you: ${reason}`;
-			ctx.ui?.notify?.(`todo-loop: waiting for you — ${reason}`, "info");
+			state.waitingJustSet = true;
+			state.reason = `waiting: ${reason}`;
+			ctx.ui?.notify?.(`todo-loop: waiting — ${reason}`, "info");
 			return {
 				content: [
 					{
 						type: "text",
-						text: `The loop is stopped for this message; the human sees: ${reason}. Do not start other work — wait for their next message.`,
+						text: `The loop is stopped until a person replies or the work you named wakes you; the human sees: ${reason}. Do not look for other work in the meantime.`,
 					},
 				],
 				details: undefined,
@@ -284,7 +294,13 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 	});
 
 	pi.on("turn_end", async (event: any, ctx: SessionContext) => {
-		if (isDisabled(ctx) || state.paused) return undefined;
+		if (isDisabled(ctx) || state.paused) {
+			// No hook state is maintained while the loop is off. A block's own turn that ends
+			// here can never be consumed later, so forget the exemption rather than let it
+			// swallow the next genuine wake.
+			state.waitingJustSet = false;
+			return undefined;
+		}
 
 		const config = loadConfig(configPath);
 		const snapshot = readSnapshot(branchEntries(ctx));
@@ -330,6 +346,11 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 		}
 
 		if (toolResultCount > 0) {
+			// A block means "until something wakes me". The block's own tool turn is not that
+			// wake, so it is skipped; any later tool turn is the agent working again — a woken
+			// run — and ends the wait without needing a new human message.
+			if (state.waitingJustSet) state.waitingJustSet = false;
+			else if (state.waiting !== null) state.waiting = null;
 			// Any tool turn — even one that failed — is work between two stops, so it ends the
 			// run of settles the hint counts.
 			state.settleRun = 0;
@@ -340,10 +361,14 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 			return undefined;
 		}
 
-		// The agent asked for a person. Nothing continues until the human answers; their
-		// next message is a new anchor, so the block clears itself.
+		// The agent stopped to wait. Nothing continues until the human replies — their next
+		// message is a new anchor, so the block clears itself — or until it is woken.
 		if (state.waiting !== null && state.waiting.anchor === snapshot.anchor) {
-			const waiting = `waiting for you: ${state.waiting.reason}`;
+			// A settle under the same anchor means the block's own tool turn is not coming (it
+			// was reported without tool results). Do not let the leftover exemption swallow the
+			// next real wake.
+			state.waitingJustSet = false;
+			const waiting = `waiting: ${state.waiting.reason}`;
 			if (state.reason !== waiting) {
 				state.reason = waiting;
 				ctx.ui?.notify?.(`todo-loop: ${waiting}`, "info");
@@ -436,6 +461,7 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 					paused: state.paused,
 					reason: "counters reset",
 					waiting: null,
+					waitingJustSet: false,
 				});
 				ctx.ui?.notify?.("todo-loop: counters reset", "info");
 				return;
@@ -460,7 +486,7 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 				: state.paused
 					? "PAUSED"
 					: waitingNow
-						? "waiting (the agent asked for you; your next message resumes)"
+						? "waiting (your reply, or whatever it is waiting for, resumes the loop)"
 						: state.reason.startsWith("stopped:")
 							? "stopped (your next message restarts the count)"
 							: "active";
@@ -474,7 +500,7 @@ export default function todoLoop(pi: any, options: TodoLoopOptions = {}): void {
 					...(waitingNow ? [`waiting: ${(state.waiting as { reason: string }).reason}`] : []),
 					`tasks open: ${snapshot.open.length} of ${snapshot.tasks.length}`,
 					`counting from: your message ${snapshot.anchor || "(none yet)"} — a new message restarts the count`,
-					`last: ${waitingNow ? `waiting for you: ${(state.waiting as { reason: string }).reason}` : state.reason}`,
+					`last: ${waitingNow ? `waiting: ${(state.waiting as { reason: string }).reason}` : state.reason}`,
 					`config ${configPath}`,
 				].join("\n"),
 				"info",

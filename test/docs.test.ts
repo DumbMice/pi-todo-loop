@@ -79,7 +79,7 @@ test("every test name the invariant map cites actually exists", () => {
 		.split("\n")
 		.filter((line) => line.startsWith("|") && !line.startsWith("| Invariant") && !isSeparator(line));
 	// Pinned exactly: a row that disappears must fail here, not merely lower the count.
-	assert.equal(rows.length, 55, `invariant map row count changed (${rows.length}); update this number when you add a row`);
+	assert.equal(rows.length, 59, `invariant map row count changed (${rows.length}); update this number when you add a row`);
 
 	const cited: string[] = [];
 	for (const row of rows) {
@@ -92,6 +92,12 @@ test("every test name the invariant map cites actually exists", () => {
 
 	const missing = cited.filter((name) => !titles.has(name));
 	assert.deepEqual(missing, [], `invariant map cites tests that do not exist: ${missing.join(", ")}`);
+});
+
+test("the nudge's second reason is described where the nudge is described", () => {
+	// The model-facing clause is not a reason string, so nothing else pins it: a revert to
+	// "need a person" would otherwise pass every other test.
+	assert.match(BEHAVIOUR, /you are waiting on work you started/, "docs/behaviour.md quotes the clause");
 });
 
 test("every stop reason the code can report appears in the README table", () => {

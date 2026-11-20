@@ -501,14 +501,20 @@ test("only the first nudge that did not move the list names todo_loop_block", as
 
 	const third = await run(h, "turn_end", settle);
 	assert.doesNotMatch(third.entries.at(-1).content, /todo_loop_block/, "one request, not a series");
+	assert.match(second.entries.at(-1).content, /waiting on work you started/, "the clause covers waiting, not only a person");
 	assert.match(third.entries.at(-1).content, /If the human's latest instruction says to stop/, "the concession still ends the nudge");
 });
 
-test("todo_loop_block stops the loop for this message and reports the reason", async () => {
+test("todo_loop_block stops the loop until a reply or a wake, and reports the reason", async () => {
 	const h = harness(branchWith([task(1, "pending")]));
 	const result = await callTool(h, "todo_loop_block", { reason: "waiting on Dana's review" });
 	assert.match(result.content[0].text, /Dana's review/, "the model is told what the human will see");
-	assert.match(h.notices.at(-1) as string, /waiting for you — waiting on Dana's review/);
+	assert.match(
+		result.content[0].text,
+		/until a person replies or the work you named wakes you/,
+		"the result names both ways out, not only the human's next message",
+	);
+	assert.match(h.notices.at(-1) as string, /waiting — waiting on Dana's review/);
 
 	assert.equal(
 		await run(h, "turn_end", { outcome: "completed", toolResults: [], entries: [] }),
@@ -523,13 +529,14 @@ test("todo_loop_block stops the loop for this message and reports the reason", a
 	await h.commands.todoloop.handler("", h.ctx);
 	const status = h.notices.at(-1) as string;
 	assert.match(status, /waiting: waiting on Dana's review/);
-	assert.match(status, /last: waiting for you: waiting on Dana's review/);
+	assert.match(status, /last: waiting: waiting on Dana's review/);
 });
 
 test("a block without a reason is refused and does not stop the loop", async () => {
 	const h = harness(branchWith([task(1, "pending")]));
 	const result = await callTool(h, "todo_loop_block", { reason: "   " });
 	assert.match(result.content[0].text, /needs a reason/);
+	assert.match(result.content[0].text, /what you are waiting for/, "the refusal allows the waiting case too");
 	assert.equal(
 		(await run(h, "turn_end", { outcome: "completed", toolResults: [], entries: [] }))?.continue,
 		true,
@@ -598,14 +605,19 @@ test("the block tool declares a prompt snippet and a self-naming guideline", asy
 	const h = harness(branchWith([task(1, "pending")]));
 	const tool = h.tools.todo_loop_block;
 	assert.ok(tool, "the tool must be registered");
-	assert.match(tool.promptSnippet, /stop/i, "a snippet is what opts the tool into <tools>");
-	assert.match(tool.promptSnippet, /this message/, "the scope: the block ends at the next message");
+	assert.match(tool.promptSnippet, /pause|stop/i, "a snippet is what opts the tool into <tools>");
+	assert.match(tool.promptSnippet, /replies or a job finishes/, "the snippet names both endings: a reply, or the job");
+	assert.match(tool.description, /waiting on work you already started/, "the description allows waiting, not only a person");
+	assert.doesNotMatch(tool.description, /rest of this message/, "a wake resumes inside the same message, so the scope is not the message");
+	assert.match(tool.parameters.properties.reason.description, /what you are waiting for/i, "the parameter asks for what is awaited, not only what a human owes");
 
 	const guidelines: string[] = tool.promptGuidelines ?? [];
 	const guideline = guidelines[0] ?? "";
 	assert.ok(guideline.includes("todo_loop_block"), "a guideline must name its tool in pi's flat <rules>");
 	assert.match(guideline, /do not use it/i, "the prohibition must be pinned, not only the recommendation");
 	assert.match(guideline, /pick the reasonable option/i, "and the alternative to blocking");
+	assert.match(guideline, /waiting on work you already started/i, "waiting is an allowed reason, not only a person");
+	assert.match(guideline, /do not poll the todo list/i, "and busy-polling is named as the wrong answer");
 });
 
 test("an uncapped runaway warns every tenth settle that changes nothing", async () => {
@@ -694,4 +706,41 @@ test("every completion value is the whole argument, so accepting it runs that su
 	assert.equal(parseCommand("p"), "p");
 	assert.equal(parseCommand(complete("p")?.[0]?.value ?? ""), "pause", "accepting the suggestion runs pause");
 	assert.equal(parseCommand("pause now"), "pause", "an argument after the subcommand is still that subcommand");
+});
+
+test("a block ends when the session is woken, not only when the human speaks", async () => {
+	// The async-subagent case: the model blocks while a job runs, the completion wakes the
+	// session, and the loop must resume — otherwise a blocked turn kills the rest of the message.
+	const h = harness(branchWith([task(1, "pending")]));
+	await callTool(h, "todo_loop_block", { reason: "waiting on the Astra revision" });
+
+	// The block call's own tool turn: must not clear the wait it just set.
+	await run(h, "turn_end", { outcome: "completed", toolResults: [{ role: "toolResult" }], entries: [] });
+	assert.equal(
+		await run(h, "turn_end", { outcome: "completed", toolResults: [], entries: [] }),
+		undefined,
+		"still waiting while nothing has woken it",
+	);
+
+	// A wake: something started a run again and the agent worked (a tool turn).
+	await run(h, "turn_end", { outcome: "completed", toolResults: [{ role: "toolResult" }], entries: [] });
+	const resumed = await run(h, "turn_end", { outcome: "completed", toolResults: [], entries: [] });
+	assert.equal(resumed?.continue, true, "work resumed, so the loop resumes");
+});
+
+test("a block that ends while paused does not eat the next wake", async () => {
+	// The block's own turn is the only one exempted. If the loop is off for that turn, the
+	// exemption must be dropped, or the next genuine wake is mistaken for it and swallowed.
+	const h = harness(branchWith([task(1, "pending")]));
+	const toolTurn = { outcome: "completed", toolResults: [{ role: "toolResult" }], entries: [] };
+	const settle = { outcome: "completed", toolResults: [], entries: [] };
+
+	await callTool(h, "todo_loop_block", { reason: "waiting on the review" });
+	await h.commands.todoloop.handler("pause", h.ctx);
+	await run(h, "turn_end", toolTurn); // the block's own turn, while paused
+	await h.commands.todoloop.handler("resume", h.ctx);
+	await run(h, "turn_end", toolTurn); // the wake
+
+	const resumed = await run(h, "turn_end", settle);
+	assert.equal(resumed?.continue, true, "the wake must resume the loop, not be eaten by the exemption");
 });

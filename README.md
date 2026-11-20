@@ -9,8 +9,8 @@ Keeps the [pi coding agent](https://pi.dev) working while its todo list still ha
 
 `rpiv-todo` gives the agent a task list and shows it to you. It never asks pi for another turn, so the
 agent still stops halfway and hands control back. This extension adds the turn: while tasks are open it
-keeps the agent going, and stops when you clear the list — or when the agent tells you it needs a
-person. It never writes the list into your prompt: the agent reads it with its own todo tool.
+keeps the agent going, and stops when you clear the list — or when the agent says it cannot proceed on
+its own: it needs a person, or it is waiting on work it started. It never writes the list into your prompt: the agent reads it with its own todo tool.
 
 ## Quick start
 
@@ -51,7 +51,7 @@ It stops for one of these reasons, and `/todoloop` always says which:
 | Why it stopped | What you see |
 |---|---|
 | the list is clear | `stopped: list is clear` — the normal ending |
-| the model said it needs a person | `waiting for you: waiting on Dana's review` — it called `todo_loop_block`; your next message resumes |
+| the model stopped to wait | `waiting: waiting on Dana's review` — it called `todo_loop_block`, for a person or for work it started; your reply, or the agent working again when that work wakes it, resumes the loop |
 | a configured cap is reached | `stopped: 12 continuations used, 3 tasks still open` — only when `maxRounds` is set; if it ends with `the agent may need you`, ask what it is waiting on |
 | it never had a list | `stopped: no list` — the model has not called the todo tool in this session |
 | the turn failed | `stopped: turn outcome was error` — the provider failed, or you aborted it |
@@ -63,6 +63,9 @@ It stops for one of these reasons, and `/todoloop` always says which:
   read it again.
 - A model that runs tools but rarely updates its list. It will still be nudged, and with no cap by
   default it keeps going until the list clears.
+- Agents that delegate to background subagents: while one runs, the agent can call `todo_loop_block`
+  with what it is waiting for instead of polling the list, and the loop resumes when that work wakes
+  the session.
 
 ## When it does not
 
@@ -79,7 +82,7 @@ It stops for one of these reasons, and `/todoloop` always says which:
 
 It buys *liveness*, not work. A model can satisfy the loop by closing tasks, including deleting
 placeholders, and a list that is never updated looks the same as one that is finished. What ends it is
-the list emptying, the agent asking for a person, a turn that fails, the `maxRounds` limit you set, or
+the list emptying, the agent saying it cannot proceed, a turn that fails, the `maxRounds` limit you set, or
 you pausing it — so the list has to mean something to you.
 
 The extension never edits your prompt. The only *variable* text it gives the model is a one-line nudge —
@@ -147,7 +150,7 @@ grep -c 'todo-loop:continue' ~/.pi/agent/sessions/<project>/*.jsonl
 | Symptom | What to do |
 |---|---|
 | Nothing continues | Check `/todoloop`: `DISABLED` means a kill-switch file exists, `PAUSED` means you paused it. `last: stopped: no list` with `tasks open: 0 of 0` means the model has not created a list in this session. `last:` only changes on a reply that ends a run, so it can lag a turn behind the counts |
-| The model asked for a person | It called `todo_loop_block` with a reason, so the loop is stopped until your next message. The reason appears in `/todoloop` as `waiting for you: …` |
+| The model stopped to wait | It called `todo_loop_block` with a reason — a person it needs, or work it started that has not finished. `/todoloop` shows `waiting: …`; your reply resumes the loop, and so does the agent working again after that work wakes it |
 | It stopped at your `maxRounds` limit | Only happens when `maxRounds` is set: the continuations for that message are used up; send another message. `no todo change for N replies` means it was working without updating the list; `the agent may need you` means it stopped twice in a row without doing anything — ask what it is waiting on |
 | Continuations jump by two, or the same reply appears twice | Two continuation extensions are installed; `pi list` shows them, remove one, then `/reload` |
 | The list is stale | The extension nudges, it does not write statuses. Nothing here fabricates progress |

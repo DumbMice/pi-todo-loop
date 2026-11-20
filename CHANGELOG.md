@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- `todo_loop_block` now covers **waiting on work the agent started**, not only needing a person. A
+  background subagent left the agent with no truthful exit: the prompt offered only "a person", so a
+  GPT-style agent filled the gap by polling `todo list` and rewriting task statuses while the loop kept
+  nudging — in one session, 12 nudges in six minutes, ten answered with status polling, 245 todo
+  updates, and not one hinted nudge because every stop followed a tool turn.
+- A block now ends when the session is woken as well as when the human replies: any tool turn after the
+  block clears it, while the block's own tool turn does not. A settle-only wake does not clear it, and
+  the status line reads `waiting: <reason>` instead of `waiting for you:`.
+
+### Fixed
+
+- A block whose own turn ended while the loop was paused or switched off left the exemption pending, so
+  the next genuine wake was consumed as the block's own turn and the loop stayed waiting until the human
+  spoke. The exemption is now dropped on that path, and by `/todoloop reset`.
+
 ## [0.3.3] - 2026-11-17
 
 ### Added

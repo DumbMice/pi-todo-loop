@@ -286,6 +286,42 @@ const SCENARIOS: Scenario[] = [
 		},
 	},
 	{
+		name: "a wake ends the block and the loop continues in the same message",
+		steps: [{ do: "block" }, { do: "tool" }, { do: "tool" }, { do: "settle" }],
+		expect: {
+			continuations: 1,
+			markers: 1,
+			rounds: 1,
+			stale: 0,
+			reason: /still open, continue 1/,
+			mode: /active/,
+		},
+	},
+	{
+		name: "a block whose own turn lands under the kill switch still ends on the wake",
+		steps: [{ do: "block" }, { do: "killSwitch", on: true }, { do: "tool" }, { do: "killSwitch", on: false }, { do: "tool" }, { do: "settle" }],
+		expect: {
+			continuations: 1,
+			markers: 1,
+			rounds: 1,
+			stale: 0,
+			reason: /still open, continue 1/,
+			mode: /active/,
+		},
+	},
+	{
+		name: "a block whose own turn lands while paused still ends on the wake",
+		steps: [{ do: "block" }, { do: "pause" }, { do: "tool" }, { do: "resume" }, { do: "tool" }, { do: "settle" }],
+		expect: {
+			continuations: 1,
+			markers: 1,
+			rounds: 1,
+			stale: 0,
+			reason: /still open, continue 1/,
+			mode: /active/,
+		},
+	},
+	{
 		name: "the agent asks for a person: the loop stops until the human answers",
 		steps: [{ do: "settle" }, { do: "block" }, { do: "settle" }, { do: "human" }, { do: "settle" }],
 		expect: {
@@ -318,7 +354,7 @@ const SCENARIOS: Scenario[] = [
 			markers: 0,
 			rounds: 0,
 			stale: 0,
-			reason: /waiting for you: waiting on a review/,
+			reason: /waiting: waiting on a review/,
 			mode: /waiting/,
 		},
 	},

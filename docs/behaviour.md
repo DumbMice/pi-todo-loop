@@ -52,7 +52,8 @@ invisibly either.
   list resets it. `settleRun` counts assistant turns since the last tool turn, and it is that counter —
   not `staleSettles` — that decides *when to ask*.
 - **The nudge has two variants.** The plain one says continue and use the todo tool. The second adds
-  *"If you cannot proceed without a person, call `todo_loop_block` with the reason."*, and is used for
+  *"If you cannot proceed — you need a person, or you are waiting on work you started — call
+  `todo_loop_block` with the reason."*, and is used for
   exactly one shape: the model stopped, we sent one request, and it stopped again **without running a
   tool and without the list changing** (`settleRun === 2`). `settleRun` counts assistant turns since the
   last tool turn, so work in between restarts it — that stop gets the plain nudge, and the stop after it
@@ -60,11 +61,17 @@ invisibly either.
 - A **tool turn** resets `settleRun`, so the next stop is not asked about even
   when the list was not touched. A tool turn that ends `error`/`aborted` resets it too: it is still a
   request between two stops.
-- **`todo_loop_block`** is the agent's own exit. It is advertised in the prompt from the first turn —
+- **`todo_loop_block`** is the agent's own exit, for two reasons: it needs a person, or it is waiting on
+  work it already started (a background subagent, a long job). The second reason is why an agent can
+  stop while something runs instead of polling the todo list to look busy. A block is shown as
+  `waiting: <reason>` and ends one of two ways: the human replies (a new message, a new anchor), or the
+  session is woken and the agent works again — in practice any tool turn after the block, because the
+  code cannot tell the job it waited for from other work. So a status poll ends a block too, and a wake
+  whose turn ends in a settle does not. The block call's own tool turn does not clear it. It is advertised in the prompt from the first turn —
   pi lists it in `<tools>` and carries its guideline in `<rules>`, because the tool declares a
   `promptSnippet` — and the nudge is the timed offer, not the only way to learn it exists. It takes a
-  reason, stores `{reason, anchor}` in memory and stops continuations for that message. The human is notified, `/todoloop` shows
-  `waiting for you: <reason>`, and the human's next message is a new anchor, so the block clears itself
+  reason, stores `{reason, anchor}` in memory and stops the nudges until the reply or the wake. The human is notified, `/todoloop` shows
+  `waiting: <reason>`, and the human's next message is a new anchor, so the block clears itself
   — there is no unblock call.
 - A block with an empty reason is refused, and the loop keeps running: the reason is the whole point.
   The tool also refuses while the loop is paused or a kill switch is present, and says so, so a
@@ -115,7 +122,7 @@ invisibly either.
 | `continuing: 2 tasks still open, continue 1` | working as intended (`continue 1/12` when `maxRounds` is set) |
 | `stopped: list is clear` | every remaining task is `completed`; a list whose tasks are all `deleted` reports `no list` instead |
 | `stopped: no list` | no recognised todo state on the branch — see the five causes below |
-| `waiting for you: waiting on Dana's review` | the agent called `todo_loop_block`; your next message resumes |
+| `waiting: waiting on Dana's review` | the agent called `todo_loop_block`; your reply, or a wake, resumes |
 | `stopped: 12 continuations used, 2 tasks still open` | the budget is spent; `, no todo change for N replies` means it worked without updating the list, `, the agent may need you` means it stopped on a bare stall |
 | `stopped: turn outcome was error` / `aborted` | the provider failed, or you aborted the turn |
 | `paused by user` | `/todoloop pause`; `/todoloop resume` or restart |
