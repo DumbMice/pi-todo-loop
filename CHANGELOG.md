@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Verified against **pi 1.6.1**. Nothing in the extension needed changing: 1.6.0's breaking change is
+  extension component `render()` returning `readonly string[]`, and this package registers no component
+  or renderer; 1.6.1's breaking change is the `showCacheMissNotices` setting, which it does not read. No
+  documented extension surface changed for `turn_end`, `context`, `custom_message` with `display: false`,
+  `registerTool`, `promptSnippet` or `promptGuidelines`. Checked live on 1.6.1: a two-task run wrote both
+  files and closed both without a nudge, and an agent told only that "a review is running" called
+  `todo_loop_block` once and stopped.
+
 ## [0.4.0] - 2026-11-20
 
 ### Changed
